@@ -4,9 +4,18 @@ import type { PdfDoc } from './editors/pdf/model';
 
 export type DocKind = 'doc' | 'sheet' | 'slides' | 'pdf';
 
+export type PaperSize = 'A4' | 'Letter' | 'Legal' | 'A5';
+export type PageNumberPos = 'bottom-center' | 'bottom-right' | 'top-right';
+
 export interface DocPageSetup {
   orientation: 'portrait' | 'landscape';
   margin: 'narrow' | 'normal' | 'wide';
+  size?: PaperSize; // A4 when unset
+  header?: string;
+  footer?: string;
+  pageNumbers?: PageNumberPos;
+  /** Page color (CSS color); white when unset. */
+  color?: string;
 }
 
 export interface DocData {

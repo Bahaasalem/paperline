@@ -1,7 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { OpenFile } from '../types';
-import { MARGIN_PX, PAGE } from '../editors/doc/page';
+import { expandToc, MARGIN_PX, PAGE, pageSize } from '../editors/doc/page';
 import { Engine, formatValue } from '../editors/sheet/formula';
 import { addr, colName, DEFAULT_COL_W, parseAddr, type Sheet, type Workbook } from '../editors/sheet/model';
 import { SlideView } from '../editors/slides/SlideView';
@@ -20,7 +20,8 @@ interface Geometry {
 function geometry(f: Printable): Geometry {
   if (f.kind === 'doc') {
     const landscape = f.data.page.orientation === 'landscape';
-    return { pageW: landscape ? PAGE.h : PAGE.w, pageH: landscape ? PAGE.w : PAGE.h, margin: MARGIN_PX[f.data.page.margin], landscape };
+    const s = pageSize(f.data.page);
+    return { pageW: s.w, pageH: s.h, margin: MARGIN_PX[f.data.page.margin], landscape };
   }
   if (f.kind === 'slides') return { pageW: f.data.w, pageH: f.data.h, margin: 0, landscape: true };
   // sheets: landscape when wide
@@ -89,7 +90,7 @@ function SheetTable({ sheet, wb }: { sheet: Sheet; wb: Workbook }) {
 function PrintContent({ file, g }: { file: Printable; g: Geometry }) {
   if (file.kind === 'doc')
     return (
-      <div className="print-doc doc-content ProseMirror" style={{ width: g.pageW - 2 * g.margin }} dangerouslySetInnerHTML={{ __html: file.data.html }} />
+      <div className="print-doc doc-content ProseMirror" style={{ width: g.pageW - 2 * g.margin }} dangerouslySetInnerHTML={{ __html: expandToc(file.data.html) }} />
     );
   if (file.kind === 'sheet')
     return (
@@ -168,29 +169,83 @@ export async function runPdf(root: HTMLElement, file: Printable): Promise<Blob> 
   const contentH = g.pageH - 2 * g.margin;
   const inner = file.kind === 'sheet' ? (content.querySelector('table') as HTMLElement) : content;
   const breaks = pageBreaks(inner, contentH, file.kind);
-  const canvas = await html2canvas(content, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false });
-  for (let i = 0; i < breaks.length - 1; i++) {
+  const setup = file.kind === 'doc' ? file.data.page : null;
+  const paper = setup?.color || '#ffffff';
+  const canvas = await html2canvas(content, { scale, backgroundColor: paper, useCORS: true, logging: false });
+  const total = breaks.length - 1;
+  let n = 0;
+  for (let i = 0; i < total; i++) {
     const y0 = breaks[i];
     const h = Math.min(contentH, breaks[i + 1] - y0);
     if (h <= 0) continue;
+    n++;
     const slice = document.createElement('canvas');
     slice.width = canvas.width;
     slice.height = Math.ceil(h * scale);
     const ctx = slice.getContext('2d')!;
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = paper;
     ctx.fillRect(0, 0, slice.width, slice.height);
     ctx.drawImage(canvas, 0, Math.floor(y0 * scale), canvas.width, slice.height, 0, 0, canvas.width, slice.height);
     if (i > 0) pdf.addPage([g.pageW, g.pageH], g.landscape ? 'landscape' : 'portrait');
+    if (paper !== '#ffffff') {
+      pdf.setFillColor(paper);
+      pdf.rect(0, 0, g.pageW, g.pageH, 'F');
+    }
     pdf.addImage(slice, 'JPEG', g.margin, g.margin, canvas.width / scale, h, undefined, 'FAST');
+    if (setup) {
+      // Header, footer and page numbers sit in the margins, drawn as images so any script works.
+      const band = (text: string, y: number, align: 'center' | 'right') => {
+        const img = textLine(text, 12, '#475569');
+        const w = img.width / 4, hh = img.height / 4;
+        const x = align === 'center' ? (g.pageW - w) / 2 : g.pageW - g.margin - w;
+        pdf.addImage(img, 'PNG', x, y - hh / 2, w, hh);
+      };
+      const top = g.margin / 2, bottom = g.pageH - g.margin / 2;
+      if (setup.header) band(setup.header, top, 'center');
+      if (setup.footer) band(setup.footer, bottom, 'center');
+      const pos = setup.pageNumbers === 'bottom-center' && setup.footer ? 'bottom-right' : setup.pageNumbers;
+      if (pos) band(String(n), pos === 'top-right' ? top : bottom, pos === 'bottom-center' ? 'center' : 'right');
+    }
   }
   return pdf.output('blob');
 }
 
+/** One line of text drawn at 4x for crisp header/footer images. */
+function textLine(text: string, px: number, color: string) {
+  const font = `${px}px Inter, "IBM Plex Sans Arabic", sans-serif`;
+  const m = document.createElement('canvas').getContext('2d')!;
+  m.font = font;
+  const w = Math.ceil(m.measureText(text).width) + 4;
+  const c = document.createElement('canvas');
+  c.width = w * 4;
+  c.height = Math.ceil(px * 1.5) * 4;
+  const ctx = c.getContext('2d')!;
+  ctx.scale(4, 4);
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, w / 2, (px * 1.5) / 2);
+  return c;
+}
+
+const cssString = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')}"`;
+
 export function runPrint(file: Printable) {
   const g = geometry(file);
   const style = document.createElement('style');
-  const size = file.kind === 'slides' ? `${g.pageW}px ${g.pageH}px` : `A4 ${g.landscape ? 'landscape' : 'portrait'}`;
-  style.textContent = `@page { size: ${size}; margin: ${file.kind === 'slides' ? 0 : g.margin + 'px'}; }`;
+  const size = file.kind === 'sheet' ? `A4 ${g.landscape ? 'landscape' : 'portrait'}` : `${g.pageW}px ${g.pageH}px`;
+  let boxes = '';
+  if (file.kind === 'doc') {
+    const p = file.data.page;
+    const box = (where: string, content: string) => `@${where} { content: ${content}; font: 9pt Inter, "IBM Plex Sans Arabic", sans-serif; color: #475569; }`;
+    if (p.header) boxes += box('top-center', cssString(p.header));
+    if (p.footer) boxes += box('bottom-center', cssString(p.footer));
+    const pos = p.pageNumbers === 'bottom-center' && p.footer ? 'bottom-right' : p.pageNumbers;
+    if (pos) boxes += box(pos, 'counter(page)');
+    if (p.color) boxes += `background: ${p.color};`;
+  }
+  style.textContent = `@page { size: ${size}; margin: ${file.kind === 'slides' ? 0 : g.margin + 'px'}; ${boxes} }`;
   document.head.appendChild(style);
   document.body.classList.add('printing');
   const done = () => {

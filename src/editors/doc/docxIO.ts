@@ -1,9 +1,10 @@
 import type { JSONContent } from '@tiptap/react';
 import {
-  AlignmentType, BorderStyle, Document, ExternalHyperlink, HeadingLevel, ImageRun, LevelFormat, Packer, PageBreak,
+  AlignmentType, BorderStyle, Document, ExternalHyperlink, Footer, Header, HeadingLevel, LineRuleType, PageNumber, ImageRun, LevelFormat, Packer, PageBreak,
   PageOrientation, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType, type IRunOptions, type ParagraphChild,
 } from 'docx';
 import type { DocPageSetup } from '../../types';
+import { PAPER } from './page';
 
 export async function readDocx(buf: ArrayBuffer): Promise<string> {
   const mammoth = await import('mammoth');
@@ -95,6 +96,18 @@ const ALIGN: Record<string, (typeof AlignmentType)[keyof typeof AlignmentType]> 
 interface Ctx {
   maxImgW: number;
   numberingRefs: number;
+  headings: { level: number; text: string }[];
+  tocTitle: string;
+}
+
+function collectHeadings(nodes: JSONContent[] | undefined, out: { level: number; text: string }[] = []) {
+  for (const n of nodes ?? []) {
+    if (n.type === 'heading') {
+      const text = (n.content ?? []).map((c) => c.text ?? '').join('').trim();
+      if (text) out.push({ level: Number(n.attrs?.level ?? 1), text });
+    } else if (n.content && n.type !== 'table') collectHeadings(n.content, out);
+  }
+  return out;
 }
 
 async function inline(nodes: JSONContent[] | undefined, ctx: Ctx): Promise<ParagraphChild[]> {
@@ -131,6 +144,12 @@ function paraOpts(n: JSONContent) {
   const o: Record<string, unknown> = {};
   if (a.textAlign && ALIGN[a.textAlign as string]) o.alignment = ALIGN[a.textAlign as string];
   if (a.dir === 'rtl') o.bidirectional = true;
+  const spacing: Record<string, unknown> = {};
+  if (a.lineHeight) { spacing.line = Math.round(parseFloat(String(a.lineHeight)) * 240); spacing.lineRule = LineRuleType.AUTO; }
+  if (a.spaceBefore != null) spacing.before = Math.round(Number(a.spaceBefore) * 20);
+  if (a.spaceAfter != null) spacing.after = Math.round(Number(a.spaceAfter) * 20);
+  if (Object.keys(spacing).length) o.spacing = spacing;
+  if (a.indent) o.indent = { start: Number(a.indent) * 540 };
   return o;
 }
 
@@ -169,6 +188,18 @@ async function blocks(nodes: JSONContent[] | undefined, ctx: Ctx, list?: { ref: 
         }
         break;
       }
+      case 'taskList':
+        for (const li of n.content ?? []) {
+          const mark = li.attrs?.checked ? '☑ ' : '☐ ';
+          const [first, ...rest] = li.content ?? [];
+          if (first) out.push(new Paragraph({ ...paraOpts(first), indent: { start: 360 * ((list?.level ?? -1) + 1) }, children: [new TextRun(mark), ...(await inline(first.content, ctx))] }));
+          if (rest.length) out.push(...(await blocks(rest, ctx, { ref: 'bullets', level: (list?.level ?? -1) + 1 })));
+        }
+        break;
+      case 'toc':
+        out.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(ctx.tocTitle)] }));
+        for (const h of ctx.headings) out.push(new Paragraph({ indent: { start: 360 * (h.level - 1) }, children: [new TextRun(h.text)] }));
+        break;
       case 'horizontalRule':
         out.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CBD5E1', space: 1 } }, children: [] }));
         break;
@@ -210,9 +241,11 @@ async function blocks(nodes: JSONContent[] | undefined, ctx: Ctx, list?: { ref: 
 export async function writeDocx(json: JSONContent, page: DocPageSetup): Promise<Blob> {
   const landscape = page.orientation === 'landscape';
   const margin = MARGINS[page.margin];
-  const pageWTwips = landscape ? 16838 : 11906;
+  const paper = PAPER[page.size ?? 'A4'];
+  const pageWTwips = landscape ? paper.th : paper.tw;
   const maxImgW = ((pageWTwips - 2 * margin) / 1440) * 96;
-  const ctx: Ctx = { maxImgW, numberingRefs: 0 };
+  const ar = document.documentElement.lang === 'ar';
+  const ctx: Ctx = { maxImgW, numberingRefs: 0, headings: collectHeadings(json.content), tocTitle: ar ? 'المحتويات' : 'Contents' };
   const children = await blocks(json.content, ctx);
   const numberConfigs = Array.from({ length: Math.max(1, ctx.numberingRefs) }, (_, i) => ({
     reference: `numbers-${i}`,
@@ -226,6 +259,7 @@ export async function writeDocx(json: JSONContent, page: DocPageSetup): Promise<
   }));
   const doc = new Document({
     creator: 'Paperline',
+    background: page.color ? { color: hex(page.color) } : undefined,
     styles: {
       default: { document: { run: { font: 'Calibri', size: 24 } } },
     },
@@ -248,13 +282,31 @@ export async function writeDocx(json: JSONContent, page: DocPageSetup): Promise<
       {
         properties: {
           page: {
-            size: { orientation: landscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT, width: 11906, height: 16838 },
+            size: { orientation: landscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT, width: paper.tw, height: paper.th },
             margin: { top: margin, bottom: margin, left: margin, right: margin },
           },
         },
+        ...headerFooter(page),
         children: children.length ? children : [new Paragraph('')],
       },
     ],
   });
   return Packer.toBlob(doc);
+}
+
+/** Word header and footer, with a live page number field. */
+function headerFooter(page: DocPageSetup) {
+  const pos = page.pageNumbers === 'bottom-center' && page.footer ? 'bottom-right' : page.pageNumbers;
+  const small = { size: 18, color: '475569' };
+  const num = () => new TextRun({ ...small, children: [PageNumber.CURRENT] });
+  const top: Paragraph[] = [];
+  const bottom: Paragraph[] = [];
+  if (page.header) top.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ ...small, text: page.header })] }));
+  if (pos === 'top-right') top.push(new Paragraph({ alignment: AlignmentType.RIGHT, children: [num()] }));
+  if (page.footer) bottom.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ ...small, text: page.footer })] }));
+  if (pos === 'bottom-center' || pos === 'bottom-right') bottom.push(new Paragraph({ alignment: pos === 'bottom-center' ? AlignmentType.CENTER : AlignmentType.RIGHT, children: [num()] }));
+  return {
+    headers: top.length ? { default: new Header({ children: top }) } : undefined,
+    footers: bottom.length ? { default: new Footer({ children: bottom }) } : undefined,
+  };
 }
