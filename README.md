@@ -8,21 +8,25 @@ Paperline is one app for every office file. It opens, edits and creates Word, Ex
 
 ## What works today
 
-| | Documents | Spreadsheets | Presentations |
-|---|---|---|---|
-| Create new | ✓ | ✓ | ✓ (title, content, two-column, blank layouts) |
-| Open | `.docx`, `.txt`, `.md`, `.html` | `.xlsx`, `.csv`, `.tsv` | `.pptx` |
-| Save as Office | `.docx` | `.xlsx`, `.csv` | `.pptx` |
-| Native format | `.pline` | `.pline` | `.pline` |
-| PDF export and print | ✓ | ✓ | ✓ (one slide per page) |
+| | Documents | Spreadsheets | Presentations | PDF |
+|---|---|---|---|---|
+| Create new | ✓ (blank and templates) | ✓ (blank and templates) | ✓ (layouts and templates) | ✓ (blank pages, or from pictures) |
+| Open | `.docx`, `.txt`, `.md`, `.html` | `.xlsx`, `.csv`, `.tsv` | `.pptx` | `.pdf` |
+| Save as Office | `.docx` | `.xlsx`, `.csv` | `.pptx` | `.pdf` |
+| Native format | `.pline` | `.pline` | `.pline` | `.pdf` |
+| PDF export and print | ✓ | ✓ | ✓ (one slide per page) | ✓ |
 
-**New file picker.** The start screen asks what you want to make, and the ribbon changes to fit: Home, Insert, Layout and View for documents; Home, Formulas, Data and View for spreadsheets; Home, Insert, Design and Slide show for presentations.
+**New file picker.** The start screen asks what you want to make, and the ribbon changes to fit the file type.
 
-**Documents:** fonts and sizes, bold, italic, underline, strike, text color and highlight, headings and a style gallery, bullet and numbered lists, quotes, code blocks, alignment, per-paragraph left-to-right or right-to-left, tables (add or remove rows and columns, resize), pictures, links, dividers, page breaks, portrait or landscape, margins, zoom, and a word count.
+**Fonts.** Every font picker lists the fonts installed on the device (through the Local Font Access API where the browser has it, and a font probe elsewhere), next to Paperline's own fonts and recently used ones.
 
-**Spreadsheets:** a fast grid with keyboard navigation, a formula bar, point-and-click references while typing a formula, 47 functions (`SUM`, `AVERAGE`, `IF`, `VLOOKUP`, `INDEX`/`MATCH`, `SUMIF`, `COUNTIF`, `TEXT`, dates and more), references across sheets, number formats (number, currency, percent, date, decimals), cell styles, borders, wrap, column resize, insert and delete rows or columns with formulas kept correct, sort, freeze the top row, copy and paste that keeps formulas, multiple sheets, and sum, average and count of the selection in the status bar.
+**Documents:** fonts and sizes, grow and shrink, change case, subscript and superscript, colors and highlight, a style gallery, bullet, numbered and check lists, indent, line and paragraph spacing, format painter, alignment and text direction, tables, pictures, links, symbols, date and time, page breaks, headers and footers with page numbers, a table of contents, find and replace, page size, margins, orientation and page color, read aloud, a navigation pane and a word count.
 
-**Presentations:** a slide rail with reorder, duplicate and delete; text boxes and shapes (rectangle, rounded, ellipse, triangle, arrow, line); pictures; drag, resize and snap to center; fonts, colors and alignment; bullets with two levels; six themes; slide backgrounds; speaker notes; and a full-screen presenter.
+**Spreadsheets:** a fast grid with keyboard navigation, a formula bar and about 100 functions; number formats including time, scientific and text; merged cells, borders per side, vertical alignment; a fill handle that continues numbers, dates, weekdays, months and quarters (English and Arabic); filters, sort, remove duplicates and dropdown lists; conditional formatting (highlight rules, top and bottom, data bars, color scales); "format as table"; charts (column, bar, line, area, pie, doughnut, scatter); cell notes; find and replace; hide, unhide and autofit rows and columns; show formulas; and a context menu. Merges, borders, notes, lists, filters and conditional formatting round-trip through `.xlsx`.
+
+**Presentations:** a gallery of 27 shapes, text boxes, pictures, tables and charts; multi-select with a selection box, smart guides while dragging, a rotation handle, align and distribute, bring forward and send backward, flip, opacity, shadow, outline width and dash; bullets and numbering, line spacing, strike, grow and shrink; copy and paste, including pictures and text from other apps; slide transitions (fade, push, wipe, zoom, cover); hidden slides; slide size (16:9, 4:3, 16:10, A4); slide numbers and a footer; drag to reorder slides; six themes; speaker notes; and a slide show with a presenter view (current and next slide, notes, timer, black screen). Tables, charts, transitions and hidden slides round-trip through `.pptx`.
+
+**PDF:** view, search and zoom; add text, shapes, ink, notes, stamps and signatures; edit existing text; fill forms; redact; reorder, rotate, delete, extract, split and merge pages; turn pictures into a PDF; and save a real PDF.
 
 **Arabic.** The language button switches the whole interface to Arabic and mirrors the layout. Text you type picks its own direction, so Arabic and English can be mixed in one file.
 
@@ -73,3 +77,7 @@ src/
 | Ctrl/⌘ + Z / Y | Undo / redo |
 | F2 | Edit the active cell |
 | F5 / Shift + F5 | Present from the start / from the current slide |
+| Ctrl/⌘ + A, C, X, V, D | Select all, copy, cut, paste, duplicate (slides) |
+| Ctrl/⌘ + [ / ] | Send backward / bring forward (add Shift for back / front) |
+| Ctrl/⌘ + M | New slide |
+| B, Shift + P | In a slide show: black screen, presenter view |

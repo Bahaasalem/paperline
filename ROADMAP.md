@@ -12,11 +12,13 @@ Paperline is built in phases. Each phase ends with something people can use, and
 - English and Arabic interface with full right-to-left layout.
 - Formula engine with unit tests; CI builds and tests every push.
 
+- A PDF app, device fonts, templates, and Word, Excel and PowerPoint tools (see the README for the full list).
+
 **Known limits** that later phases fix:
 - Word import keeps structure (headings, lists, tables, images, bold, italic) but drops colors, fonts, alignment, headers, footers and footnotes.
-- PDF pages are images, so their text cannot be selected or searched.
-- Spreadsheets have no charts, merged cells, conditional formatting or data validation yet.
-- Presentation text boxes use one style per box, and there are no transitions, animations, tables or charts on slides yet.
+- PDF export of documents, sheets and slides draws pages as images, so their text cannot be selected or searched.
+- Spreadsheet charts are kept in `.pline` files but not yet written to `.xlsx`.
+- Presentation text boxes use one style per box, and there are no per-object animations yet.
 
 ## Phase 2: Desktop apps for Windows and macOS
 
@@ -44,14 +46,14 @@ Paperline is built in phases. Each phase ends with something people can use, and
 - Find and replace, spell check (English and Arabic), real page view with live pagination.
 
 **Spreadsheets**
-- Charts (bar, line, pie, area, scatter) that save to `.xlsx`.
-- Merged cells, conditional formatting, data validation, filters, freeze panes of any size.
+- Charts written into `.xlsx` files.
+- Freeze panes of any size, pivot tables.
 - 300+ functions, named ranges, array formulas.
 - Large files: virtual columns as well as rows, background calculation in a web worker.
 
 **Presentations**
-- Rich text inside boxes (mixed styles per word), tables and charts on slides.
-- Transitions and simple animations, presenter view with notes and a timer.
+- Rich text inside boxes (mixed styles per word).
+- Per-object animations, grouping, and a second-screen presenter view.
 - Master slides and layouts that follow the opened `.pptx` theme.
 
 **Everywhere**
