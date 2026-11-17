@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Download, FileDown, FilePlus2, FolderOpen, Home, Languages, Loader2, Printer, Save, X } from 'lucide-react';
 import { useI18n } from './i18n';
 import type { DocKind, OpenFile } from './types';
@@ -6,12 +6,16 @@ import { StartScreen } from './StartScreen';
 import { DocEditor } from './editors/doc/DocEditor';
 import { SheetEditor } from './editors/sheet/SheetEditor';
 import { SlidesEditor } from './editors/slides/SlidesEditor';
+import { newPdfDoc } from './editors/pdf/model';
 import { newWorkbook } from './editors/sheet/model';
 import { newDeck } from './editors/slides/model';
 import { ACCEPT, defaultPage, exportAs, openFile, saveBlob, type SaveFormat } from './io/files';
-import { PrintJob, type PrintMode } from './io/print';
+import { PrintJob, type Printable, type PrintMode } from './io/print';
 import { Menu, MenuItem } from './ui/Ribbon';
 import { Logo } from './ui/Logo';
+
+// The PDF editor brings pdf.js and pdf-lib, so it loads only when a PDF is opened.
+const PdfEditor = lazy(() => import('./editors/pdf/PdfEditor').then((m) => ({ default: m.PdfEditor })));
 
 let nextId = 1;
 
@@ -22,7 +26,7 @@ export default function App() {
   const [dirty, setDirty] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [job, setJob] = useState<{ mode: PrintMode; file: OpenFile } | null>(null);
+  const [job, setJob] = useState<{ mode: PrintMode; file: Printable } | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
 
   const active = files.find((f) => f.id === activeId) ?? null;
@@ -39,8 +43,9 @@ export default function App() {
   };
 
   const createNew = (kind: DocKind) => {
-    const name = `${t('untitled')} ${t(kind === 'doc' ? 'kind_doc' : kind === 'sheet' ? 'kind_sheet' : 'kind_slides')}`;
-    if (kind === 'doc') add({ kind, name, data: { html: '', page: defaultPage() } });
+    const name = `${t('untitled')} ${t(kind === 'doc' ? 'kind_doc' : kind === 'sheet' ? 'kind_sheet' : kind === 'pdf' ? 'kind_pdf' : 'kind_slides')}`;
+    if (kind === 'pdf') add({ kind, name, data: newPdfDoc() });
+    else if (kind === 'doc') add({ kind, name, data: { html: '', page: defaultPage() } });
     else if (kind === 'sheet') add({ kind, name, data: newWorkbook(t('sheet')) });
     else add({ kind, name, data: newDeck() });
   };
@@ -52,7 +57,8 @@ export default function App() {
       add(loaded as Omit<OpenFile, 'id'>);
     } catch (e) {
       console.error(e);
-      flash((e as Error)?.message === 'unsupported' ? t('unsupported') : t('errorOpen'));
+      const m = (e as Error)?.message;
+      flash(m === 'unsupported' ? t('unsupported') : m === 'password' ? t('pdfPassword') : t('errorOpen'));
     } finally {
       setBusy(false);
     }
@@ -77,7 +83,7 @@ export default function App() {
     try {
       const { blob, filename } = await exportAs(active, fmt);
       await saveBlob(blob, filename);
-      if (fmt === 'native' || fmt === 'docx' || fmt === 'xlsx' || fmt === 'pptx') setDirty((d) => ({ ...d, [active.id]: false }));
+      if (fmt === 'native' || fmt === 'docx' || fmt === 'xlsx' || fmt === 'pptx' || fmt === 'pdf') setDirty((d) => ({ ...d, [active.id]: false }));
       flash(t('saved'));
     } catch (e) {
       console.error(e);
@@ -87,7 +93,24 @@ export default function App() {
     }
   };
 
-  const officeFormat: SaveFormat | null = active ? (active.kind === 'doc' ? 'docx' : active.kind === 'sheet' ? 'xlsx' : 'pptx') : null;
+  const officeFormat: SaveFormat | null = active
+    ? active.kind === 'doc' ? 'docx' : active.kind === 'sheet' ? 'xlsx' : active.kind === 'pdf' ? 'pdf' : 'pptx'
+    : null;
+
+  /** Print / export PDF. A PDF file already is one: save it directly and print its rendered pages. */
+  const startJob = (mode: PrintMode, file: OpenFile) => {
+    if (file.kind === 'pdf') {
+      if (mode === 'pdf') return save('pdf');
+      setBusy(true);
+      import('./editors/pdf/print')
+        .then(({ printPdfDoc }) => printPdfDoc(file.data))
+        .catch((e) => flash(String((e as Error)?.message ?? e)))
+        .finally(() => setBusy(false));
+      return;
+    }
+    if (mode === 'pdf') setBusy(true);
+    setJob({ mode, file });
+  };
 
   const close = (id: number) => {
     if (dirty[id] && !window.confirm(t('unsavedConfirm'))) return;
@@ -113,7 +136,7 @@ export default function App() {
       const k = e.key.toLowerCase();
       if (k === 's') { e.preventDefault(); if (active && officeFormat) save(e.shiftKey ? 'native' : officeFormat); }
       else if (k === 'o') { e.preventDefault(); openInput.current?.click(); }
-      else if (k === 'p') { e.preventDefault(); if (active) setJob({ mode: 'print', file: active }); }
+      else if (k === 'p') { e.preventDefault(); if (active) startJob('print', active); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -155,9 +178,10 @@ export default function App() {
                 {active.kind === 'sheet' && <MenuItem icon={<Download size={16} />} label={t('saveXlsx')} onClick={() => { closeMenu(); save('xlsx'); }} />}
                 {active.kind === 'sheet' && <MenuItem icon={<Download size={16} />} label={t('saveCsv')} onClick={() => { closeMenu(); save('csv'); }} />}
                 {active.kind === 'slides' && <MenuItem icon={<Download size={16} />} label={t('savePptx')} onClick={() => { closeMenu(); save('pptx'); }} />}
-                <MenuItem icon={<FileDown size={16} />} label={t('exportPdf')} onClick={() => { closeMenu(); setBusy(true); setJob({ mode: 'pdf', file: active }); }} />
+                {active.kind === 'pdf' && <MenuItem icon={<Download size={16} />} label={t('savePdfFile')} onClick={() => { closeMenu(); save('pdf'); }} />}
+                <MenuItem icon={<FileDown size={16} />} label={t('exportPdf')} onClick={() => { closeMenu(); startJob('pdf', active); }} />
                 <div className="menu-sep" />
-                <MenuItem icon={<Printer size={16} />} label={t('print')} hint="Ctrl+P" onClick={() => { closeMenu(); setJob({ mode: 'print', file: active }); }} />
+                <MenuItem icon={<Printer size={16} />} label={t('print')} hint="Ctrl+P" onClick={() => { closeMenu(); startJob('print', active); }} />
                 <MenuItem icon={<X size={16} />} label={t('close')} onClick={() => { closeMenu(); close(active.id); }} />
               </>
             )}
@@ -183,10 +207,10 @@ export default function App() {
           {busy && <Loader2 className="spin" size={18} aria-label={t('working')} />}
           {active && (
             <>
-              <button className="icon-btn" title={t('print')} aria-label={t('print')} onClick={() => setJob({ mode: 'print', file: active })}>
+              <button className="icon-btn" title={t('print')} aria-label={t('print')} onClick={() => startJob('print', active)}>
                 <Printer size={18} />
               </button>
-              <button className="icon-btn" title={t('exportPdf')} aria-label={t('exportPdf')} onClick={() => { setBusy(true); setJob({ mode: 'pdf', file: active }); }}>
+              <button className="icon-btn" title={t('exportPdf')} aria-label={t('exportPdf')} onClick={() => startJob('pdf', active)}>
                 <FileDown size={18} />
               </button>
               <button className="save-btn" onClick={() => save(officeFormat!)}>
@@ -212,6 +236,11 @@ export default function App() {
             {f.kind === 'doc' && <DocEditor data={f.data} onChange={updaterFor(f.id) as never} />}
             {f.kind === 'sheet' && f.id === activeId && <SheetEditor data={f.data} onChange={updaterFor(f.id) as never} />}
             {f.kind === 'slides' && f.id === activeId && <SlidesEditor data={f.data} onChange={updaterFor(f.id) as never} />}
+            {f.kind === 'pdf' && f.id === activeId && (
+              <Suspense fallback={<div className="editor-loading"><Loader2 className="spin" size={22} /></div>}>
+                <PdfEditor data={f.data} name={f.name} onChange={updaterFor(f.id) as never} />
+              </Suspense>
+            )}
           </div>
         ))}
       </main>

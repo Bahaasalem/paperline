@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, useLayoutEffect, type CSSProperties } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export interface RibbonTab {
@@ -107,9 +107,33 @@ const PALETTE = [
   '#bbf7d0', '#99f6e4', '#bfdbfe', '#c7d2fe', '#e9d5ff', '#fbcfe8',
 ];
 
+/**
+ * Popups open under their trigger with fixed positioning, so the ribbon's
+ * horizontal scrolling never clips them. Flips to the other edge near the window side.
+ */
+function usePopStyle(ref: React.RefObject<HTMLDivElement | null>, open: boolean, align: 'start' | 'end' = 'start', width = 260): CSSProperties | undefined {
+  const [st, setSt] = useState<CSSProperties>();
+  useLayoutEffect(() => {
+    if (!open || !ref.current) return;
+    const place = () => {
+      const r = ref.current!.getBoundingClientRect();
+      const rtl = getComputedStyle(ref.current!).direction === 'rtl';
+      const fromRight = (align === 'end') !== rtl;
+      let left = fromRight ? r.right - width : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+      setSt({ position: 'fixed', top: r.bottom + 6, left, insetInlineStart: 'auto', insetInlineEnd: 'auto', maxHeight: window.innerHeight - r.bottom - 16, overflowY: 'auto' });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [open, ref, align, width]);
+  return open ? st : undefined;
+}
+
 export function ColorBtn({ icon, label, color, onPick, allowNone }: { icon: ReactNode; label: string; color?: string; onPick: (c: string | null) => void; allowNone?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const popStyle = usePopStyle(ref, open, 'start', 196);
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
@@ -128,7 +152,7 @@ export function ColorBtn({ icon, label, color, onPick, allowNone }: { icon: Reac
         <ChevronDown size={12} />
       </button>
       {open && (
-        <div className="color-pop" onMouseDown={(e) => e.preventDefault()}>
+        <div className="color-pop" style={popStyle} onMouseDown={(e) => e.preventDefault()}>
           <div className="swatches">
             {PALETTE.map((c) => (
               <button
@@ -174,6 +198,7 @@ export function ColorBtn({ icon, label, color, onPick, allowNone }: { icon: Reac
 export function Menu({ trigger, children, align = 'start' }: { trigger: (open: boolean, toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: 'start' | 'end' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const popStyle = usePopStyle(ref, open, align);
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
@@ -190,7 +215,7 @@ export function Menu({ trigger, children, align = 'start' }: { trigger: (open: b
   return (
     <div className="menu-wrap" ref={ref}>
       {trigger(open, () => setOpen((o) => !o))}
-      {open && <div className={`menu-pop ${align}`}>{children(() => setOpen(false))}</div>}
+      {open && <div className={`menu-pop ${align}`} style={popStyle}>{children(() => setOpen(false))}</div>}
     </div>
   );
 }

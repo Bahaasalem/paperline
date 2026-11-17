@@ -7,6 +7,8 @@ import { addr, colName, DEFAULT_COL_W, parseAddr, type Sheet, type Workbook } fr
 import { SlideView } from '../editors/slides/SlideView';
 
 export type PrintMode = 'print' | 'pdf';
+/** Files printed through HTML. PDFs print their own rendered pages (editors/pdf/print). */
+export type Printable = Exclude<OpenFile, { kind: 'pdf' }>;
 
 interface Geometry {
   pageW: number; // px
@@ -15,7 +17,7 @@ interface Geometry {
   landscape: boolean;
 }
 
-function geometry(f: OpenFile): Geometry {
+function geometry(f: Printable): Geometry {
   if (f.kind === 'doc') {
     const landscape = f.data.page.orientation === 'landscape';
     return { pageW: landscape ? PAGE.h : PAGE.w, pageH: landscape ? PAGE.w : PAGE.h, margin: MARGIN_PX[f.data.page.margin], landscape };
@@ -83,7 +85,7 @@ function SheetTable({ sheet, wb }: { sheet: Sheet; wb: Workbook }) {
   );
 }
 
-function PrintContent({ file, g }: { file: OpenFile; g: Geometry }) {
+function PrintContent({ file, g }: { file: Printable; g: Geometry }) {
   if (file.kind === 'doc')
     return (
       <div className="print-doc doc-content ProseMirror" style={{ width: g.pageW - 2 * g.margin }} dangerouslySetInnerHTML={{ __html: file.data.html }} />
@@ -112,7 +114,7 @@ async function settle(root: HTMLElement) {
 }
 
 /** Break offsets (px from container top) at block boundaries, so pages never cut a line in half. */
-function pageBreaks(container: HTMLElement, contentH: number, kind: OpenFile['kind']): number[] {
+function pageBreaks(container: HTMLElement, contentH: number, kind: Printable['kind']): number[] {
   const top = container.getBoundingClientRect().top;
   const blocks: { y: number; bottom: number; force: boolean }[] = [];
   const els = kind === 'sheet' ? Array.from(container.querySelectorAll('tr')) : Array.from(container.children);
@@ -146,7 +148,7 @@ function pageBreaks(container: HTMLElement, contentH: number, kind: OpenFile['ki
   return breaks;
 }
 
-export async function runPdf(root: HTMLElement, file: OpenFile): Promise<Blob> {
+export async function runPdf(root: HTMLElement, file: Printable): Promise<Blob> {
   const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas-pro')]);
   await settle(root);
   const g = geometry(file);
@@ -183,7 +185,7 @@ export async function runPdf(root: HTMLElement, file: OpenFile): Promise<Blob> {
   return pdf.output('blob');
 }
 
-export function runPrint(file: OpenFile) {
+export function runPrint(file: Printable) {
   const g = geometry(file);
   const style = document.createElement('style');
   const size = file.kind === 'slides' ? `${g.pageW}px ${g.pageH}px` : `A4 ${g.landscape ? 'landscape' : 'portrait'}`;
@@ -201,7 +203,7 @@ export function runPrint(file: OpenFile) {
 }
 
 /** Mounts the printable rendering offscreen, runs the job, then calls onDone. */
-export function PrintJob({ file, mode, onDone }: { file: OpenFile; mode: PrintMode; onDone: (pdf?: Blob, err?: unknown) => void }) {
+export function PrintJob({ file, mode, onDone }: { file: Printable; mode: PrintMode; onDone: (pdf?: Blob, err?: unknown) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const g = geometry(file);
   useEffect(() => {

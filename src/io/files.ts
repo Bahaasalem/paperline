@@ -10,13 +10,18 @@ const xlsxIO = () => import('../editors/sheet/xlsxIO');
 const pptxIO = () => import('../editors/slides/pptxIO');
 import type { Workbook } from '../editors/sheet/model';
 import type { Deck } from '../editors/slides/model';
+import type { PdfDoc } from '../editors/pdf/model';
+// PDF engine (pdf.js + pdf-lib) is loaded on demand too.
+const pdfjsMod = () => import('../editors/pdf/pdfjs');
+const pdfSave = () => import('../editors/pdf/save');
+const pdfImages = () => import('../editors/pdf/images');
 
 export const NATIVE_EXT = 'pline';
-export const ACCEPT = '.docx,.xlsx,.pptx,.csv,.tsv,.txt,.md,.html,.htm,.pline';
+export const ACCEPT = '.docx,.xlsx,.pptx,.csv,.tsv,.txt,.md,.html,.htm,.pline,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp';
 
-export type SaveFormat = 'native' | 'docx' | 'xlsx' | 'pptx' | 'csv';
+export type SaveFormat = 'native' | 'docx' | 'xlsx' | 'pptx' | 'csv' | 'pdf';
 
-type Loaded = { kind: 'doc'; data: DocData } | { kind: 'sheet'; data: Workbook } | { kind: 'slides'; data: Deck };
+type Loaded = { kind: 'doc'; data: DocData } | { kind: 'sheet'; data: Workbook } | { kind: 'slides'; data: Deck } | { kind: 'pdf'; data: PdfDoc };
 
 const baseName = (n: string) => n.replace(/\.[^.]+$/, '');
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -46,6 +51,20 @@ export async function openFile(file: File): Promise<Loaded & { name: string }> {
     case 'html':
     case 'htm':
       return { kind: 'doc', name, data: { html: new DOMParser().parseFromString(await file.text(), 'text/html').body.innerHTML, page: defaultPage() } };
+    case 'pdf': {
+      const { importPdf } = await pdfjsMod();
+      const r = await importPdf(new Uint8Array(await file.arrayBuffer()));
+      return { kind: 'pdf', name, data: { sources: { [r.id]: r.b64 }, pages: r.pages, form: {}, decor: {}, meta: { title: r.title } } };
+    }
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'webp':
+    case 'gif':
+    case 'bmp': {
+      const pages = await (await pdfImages()).imagesToPages([file]);
+      return { kind: 'pdf', name, data: { sources: {}, pages, form: {}, decor: {}, meta: {} } };
+    }
     case NATIVE_EXT:
       return { ...(await readNative(await file.arrayBuffer())), name };
     default:
@@ -97,6 +116,9 @@ export async function exportAs(f: OpenFile, fmt: SaveFormat): Promise<{ blob: Bl
     case 'pptx':
       if (f.kind !== 'slides') throw new Error('wrong kind');
       return { blob: await (await pptxIO()).writePptx(f.data), filename: `${name}.pptx` };
+    case 'pdf':
+      if (f.kind !== 'pdf') throw new Error('wrong kind');
+      return { blob: await (await pdfSave()).pdfBlob(f.data), filename: `${name}.pdf` };
   }
 }
 

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { FileText, Sheet, Presentation, NotebookPen, Database, Newspaper, Workflow, GanttChart, Upload, Languages } from 'lucide-react';
+import { FileText, FileType2, Sheet, Presentation, NotebookPen, Database, Newspaper, Workflow, GanttChart, Upload, Languages } from 'lucide-react';
 import { useI18n, type Key } from './i18n';
 import type { DocKind } from './types';
 import { ACCEPT } from './io/files';
@@ -14,6 +14,7 @@ const MAIN: { kind: DocKind; icon: typeof FileText; label: Key; desc: Key; cls: 
   { kind: 'doc', icon: FileText, label: 'kind_doc', desc: 'kind_doc_desc', cls: 'doc' },
   { kind: 'sheet', icon: Sheet, label: 'kind_sheet', desc: 'kind_sheet_desc', cls: 'sheet' },
   { kind: 'slides', icon: Presentation, label: 'kind_slides', desc: 'kind_slides_desc', cls: 'slides' },
+  { kind: 'pdf', icon: FileType2, label: 'kind_pdf', desc: 'kind_pdf_desc', cls: 'pdf' },
 ];
 
 const SOON: { icon: typeof FileText; label: Key; desc: Key }[] = [
