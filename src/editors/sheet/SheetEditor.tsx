@@ -22,6 +22,7 @@ import {
   filteredOut, filterValues, findCells, mergeAt, mergeCells, replaceIn, unmergeCells, type BorderMode,
 } from './features';
 import { ChartSvg } from './Chart';
+import { AskDialog, type Ask, type AskField } from '../../ui/AskDialog';
 
 interface Props {
   data: Workbook;
@@ -35,8 +36,6 @@ const OVERSCAN = 8;
 /** Copies made from menus can't put our rich payload on the system clipboard, so remember the last one. */
 let lastCopy: { text: string; payload: string } | null = null;
 
-interface AskField { key: string; label: string; value: string; type?: 'text' | 'number' | 'textarea' | 'select'; options?: { value: string; label: string }[] }
-interface Ask { title: string; fields: AskField[]; onOk: (v: Record<string, string>) => void }
 
 const HL_STYLES: Record<string, { bg?: string; color?: string }> = {
   red: { bg: '#ffc7ce', color: '#9c0006' },
@@ -1665,40 +1664,6 @@ function FilterPopup({ x, y, values, shown, onSort, onApply, onClose }: {
         <button type="button" className="ghost-btn small" onClick={onClose}>{t('cancel')}</button>
         <button type="button" className="primary-btn small" disabled={on.size === 0} onClick={() => onApply(values.every((v) => on.has(v)) ? null : [...on])}>{t('ok')}</button>
       </div>
-    </div>
-  );
-}
-
-function AskDialog({ ask, onClose }: { ask: Ask; onClose: () => void }) {
-  const { t } = useI18n();
-  const [vals, setVals] = useState(() => Object.fromEntries(ask.fields.map((f) => [f.key, f.value])));
-  const ok = () => { ask.onOk(vals); onClose(); };
-  return (
-    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="modal ask-modal" role="dialog" aria-label={ask.title} onSubmit={(e) => { e.preventDefault(); ok(); }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <header>
-          <h3>{ask.title}</h3>
-          <button type="button" className="icon-btn" aria-label={t('close')} onClick={onClose}><X size={18} /></button>
-        </header>
-        {ask.fields.map((f, i) => (
-          <label key={f.key} className="ask-field">
-            <span>{f.label}</span>
-            {f.type === 'select' ? (
-              <select value={vals[f.key]} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}>
-                {f.options!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            ) : f.type === 'textarea' ? (
-              <textarea autoFocus={i === 0} dir="auto" rows={4} value={vals[f.key]} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ok(); }} />
-            ) : (
-              <input autoFocus={i === 0} dir="auto" type={f.type === 'number' ? 'number' : 'text'} value={vals[f.key]} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} />
-            )}
-          </label>
-        ))}
-        <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>{t('cancel')}</button>
-          <button type="submit" className="primary-btn">{t('ok')}</button>
-        </div>
-      </form>
     </div>
   );
 }

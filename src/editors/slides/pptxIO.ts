@@ -1,20 +1,50 @@
 import JSZip from 'jszip';
-import { textStyle, uid, type Deck, type ShapeKind, type Slide, type SlideEl, type TextStyle } from './model';
+import { textStyle, uid, type ChartData, type Deck, type ShapeEl, type ShapeKind, type Slide, type SlideEl, type TextEl, type TextStyle, type Transition } from './model';
+import type { ChartType } from '../sheet/model';
+import { CHART_COLORS } from '../sheet/features';
 
 const EMU_PER_PX = 9525;
 const PX_PER_IN = 96;
 
 // ---------------- export ----------------
+/** Our shape kinds → DrawingML preset geometry names (pptxgenjs passes these through). */
 const PPTX_SHAPES: Record<ShapeKind, string> = {
-  rect: 'rect',
-  roundRect: 'roundRect',
-  ellipse: 'ellipse',
-  triangle: 'triangle',
-  rightArrow: 'rightArrow',
-  line: 'line',
+  rect: 'rect', roundRect: 'roundRect', ellipse: 'ellipse', triangle: 'triangle', rtTriangle: 'rtTriangle', diamond: 'diamond',
+  pentagon: 'pentagon', hexagon: 'hexagon', octagon: 'octagon', parallelogram: 'parallelogram', trapezoid: 'trapezoid',
+  star4: 'star4', star5: 'star5', star8: 'star8', heart: 'heart', plus: 'plus', callout: 'wedgeRoundRectCallout', cloud: 'cloud',
+  rightArrow: 'rightArrow', leftArrow: 'leftArrow', upArrow: 'upArrow', downArrow: 'downArrow', leftRightArrow: 'leftRightArrow',
+  chevron: 'chevron', homePlate: 'homePlate', line: 'line', arrowLine: 'line',
+};
+/** Preset names we read back, including common aliases PowerPoint writes. */
+const FROM_PRST: Record<string, ShapeKind> = {
+  ...Object.fromEntries(Object.entries(PPTX_SHAPES).filter(([k]) => k !== 'arrowLine').map(([k, v]) => [v, k as ShapeKind])),
+  mathPlus: 'plus', wedgeRectCallout: 'callout', wedgeEllipseCallout: 'callout', cloudCallout: 'cloud', flowChartProcess: 'rect',
+  flowChartAlternateProcess: 'roundRect', flowChartDecision: 'diamond', flowChartConnector: 'ellipse', snip1Rect: 'rect', round2SameRect: 'roundRect',
+  notchedRightArrow: 'rightArrow', stripedRightArrow: 'rightArrow', star6: 'star8', star7: 'star8', star10: 'star8', star12: 'star8', decagon: 'octagon', heptagon: 'hexagon',
+};
+const TRANSITION_XML: Record<Exclude<Transition, 'none'>, string> = {
+  fade: '<p:fade/>', push: '<p:push dir="u"/>', wipe: '<p:wipe dir="r"/>', zoom: '<p:zoom/>', cover: '<p:cover dir="l"/>',
 };
 
 const hex = (c?: string) => (c && c.startsWith('#') ? c.slice(1).toUpperCase().padEnd(6, '0').slice(0, 6) : undefined);
+const transparency = (el: SlideEl) => (el.opacity !== undefined && el.opacity < 1 ? Math.round((1 - el.opacity) * 100) : undefined);
+const SHADOW = { type: 'outer', blur: 8, offset: 4, angle: 90, color: '0F172A', opacity: 0.3 };
+
+function runsOf(el: TextEl | ShapeEl) {
+  const lines = el.text.split('\n');
+  const list = el.type === 'text' && (el.bullets || el.numbered);
+  return lines.map((l, i) => {
+    const sub = l.startsWith('  ');
+    return {
+      text: l.trimStart(),
+      options: {
+        breakLine: i < lines.length - 1,
+        bullet: list ? (el.type === 'text' && el.numbered ? { type: 'number', ...(sub ? { indent: 18 } : {}) } : sub ? { indent: 18 } : true) : undefined,
+        indentLevel: list && sub ? 1 : undefined,
+      },
+    };
+  });
+}
 
 export async function writePptx(deck: Deck): Promise<Blob> {
   const { default: PptxGenJS } = await import('pptxgenjs');
@@ -28,35 +58,88 @@ export async function writePptx(deck: Deck): Promise<Blob> {
   for (const s of deck.slides) {
     const slide = pptx.addSlide();
     slide.background = { color: hex(s.bg) ?? 'FFFFFF' };
+    if (s.hidden) slide.hidden = true;
     if (s.notes) slide.addNotes(s.notes);
+    const deco = isDarkHex(s.bg) ? 'E2E8F0' : '64748B';
     for (const el of s.els) {
-      const pos = { x: inch(el.x), y: inch(el.y), w: inch(el.w), h: inch(el.h), rotate: el.rot };
+      const pos = { x: inch(el.x), y: inch(el.y), w: inch(el.w), h: inch(el.h), rotate: el.rot, flipH: el.flipH, flipV: el.flipV };
+      const shadow = el.shadow ? SHADOW : undefined;
       if (el.type === 'image') {
-        slide.addImage({ data: el.src, ...pos });
+        slide.addImage({ data: el.src, ...pos, transparency: transparency(el), shadow } as never);
+        continue;
+      }
+      if (el.type === 'table') {
+        const band = tintHex(el.color, 0.86);
+        const border = { type: 'solid', pt: 0.75, color: tintHex(el.color, 0.55) };
+        const rows = el.rows.map((row, r) => {
+          const head = el.header && r === 0;
+          const striped = el.banded && !head && (r - (el.header ? 1 : 0)) % 2 === 0;
+          return row.map((text) => ({
+            text,
+            options: { fill: { color: head ? hex(el.color) : striped ? band : 'FFFFFF' }, color: head ? 'FFFFFF' : hex(el.style.color), bold: head || el.style.bold, border },
+          }));
+        });
+        slide.addTable(rows as never, {
+          x: pos.x, y: pos.y, w: pos.w, h: pos.h, rowH: pos.h / el.rows.length, fontSize: el.style.fontSize, fontFace: el.style.fontFace,
+          align: el.style.align, valign: 'middle', margin: 4,
+        } as never);
+        continue;
+      }
+      if (el.type === 'chart') {
+        const scatter = el.chart === 'scatter';
+        const type = { column: 'bar', bar: 'bar', line: 'line', area: 'area', pie: 'pie', doughnut: 'doughnut', scatter: 'scatter' }[el.chart];
+        const series = el.data.series.map((x) => ({ name: x.name, labels: el.data.cats, values: x.values.map((v) => v ?? 0) }));
+        const xs = el.data.cats.map((c, i) => (Number.isFinite(parseFloat(c)) ? parseFloat(c) : i + 1));
+        const chartData = scatter ? [{ name: 'X', values: xs }, ...series.map((x) => ({ name: x.name, values: x.values }))] : series;
+        slide.addChart(type as never, chartData as never, {
+          ...pos, barDir: el.chart === 'bar' ? 'bar' : 'col', chartColors: CHART_COLORS.map((c) => c.slice(1)),
+          showLegend: el.legend !== false && (el.chart === 'pie' || el.chart === 'doughnut' || el.data.series.length > 1), legendPos: 'b',
+          showTitle: !!el.title, title: el.title || undefined, titleFontSize: 14, fontFace: 'Arial',
+          showPercent: el.chart === 'pie' || el.chart === 'doughnut', showValue: false, lineSize: scatter ? 0 : 2, lineDataSymbolSize: 6,
+        } as never);
         continue;
       }
       const textOpts = textProps(el.style);
-      const lines = el.text.split('\n');
-      const runs = lines.map((l, i) => ({
-        text: l.trimStart(),
-        options: {
-          breakLine: i < lines.length - 1,
-          bullet: el.type === 'text' && el.bullets ? (l.startsWith('  ') ? { indent: 18 } : true) : undefined,
-          indentLevel: el.type === 'text' && el.bullets && l.startsWith('  ') ? 1 : undefined,
-        },
-      }));
+      const runs = runsOf(el);
       if (el.type === 'shape') {
-        const fill = el.fill && el.fill !== 'transparent' ? { color: hex(el.fill) } : undefined;
-        const line = el.shape === 'line' ? { color: hex(el.stroke ?? el.fill), width: el.strokeW ?? 2 } : el.stroke ? { color: hex(el.stroke), width: el.strokeW ?? 2 } : undefined;
-        if (el.text) slide.addText(runs, { ...pos, ...textOpts, shape: PPTX_SHAPES[el.shape] as never, fill: fill as never, line: line as never });
-        else slide.addShape(PPTX_SHAPES[el.shape] as never, { ...pos, fill: fill as never, line: line as never });
+        const isLine = el.shape === 'line' || el.shape === 'arrowLine';
+        const fill = !isLine && el.fill && el.fill !== 'transparent' ? { color: hex(el.fill), transparency: transparency(el) } : undefined;
+        const dashType = el.dash === 'dash' ? 'dash' : el.dash === 'dot' ? 'sysDot' : undefined;
+        const line = isLine
+          ? { color: hex(el.stroke ?? el.fill), width: el.strokeW || 2, dashType, endArrowType: el.shape === 'arrowLine' ? 'triangle' : undefined }
+          : el.stroke && el.strokeW ? { color: hex(el.stroke), width: el.strokeW, dashType } : undefined;
+        // a line is drawn through the middle of its box
+        const lpos = isLine ? { ...pos, y: inch(el.y + el.h / 2), h: 0 } : pos;
+        const opts = { ...lpos, fill, line, shadow };
+        if (el.text && !isLine) slide.addText(runs as never, { ...opts, ...textOpts, shape: PPTX_SHAPES[el.shape] } as never);
+        else slide.addShape(PPTX_SHAPES[el.shape] as never, opts as never);
       } else {
-        slide.addText(el.text ? runs : '', { ...pos, ...textOpts, fill: el.fill ? { color: hex(el.fill) } : undefined, margin: 4 } as never);
+        slide.addText((el.text ? runs : '') as never, { ...pos, ...textOpts, fill: el.fill ? { color: hex(el.fill), transparency: transparency(el) } : undefined, shadow, margin: 4 } as never);
       }
     }
+    if (deck.footer) slide.addText(deck.footer, { x: inch(deck.w * 0.25), y: inch(deck.h - 34), w: inch(deck.w * 0.5), h: inch(24), fontSize: 10, color: deco, align: 'center' });
+    if (deck.slideNumbers) slide.slideNumber = { x: inch(deck.w - 70), y: inch(deck.h - 34), w: inch(50), h: inch(24), fontSize: 10, color: deco, align: 'right' } as never;
   }
-  const out = (await pptx.write({ outputType: 'blob' })) as Blob;
-  return new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+  const out = (await pptx.write({ outputType: 'arraybuffer' })) as ArrayBuffer;
+  const bytes = await addTransitions(out, deck);
+  return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+}
+
+/** pptxgenjs has no transitions: write <p:transition> into each slide part ourselves. */
+async function addTransitions(buf: ArrayBuffer, deck: Deck): Promise<ArrayBuffer> {
+  if (!deck.slides.some((s) => s.transition && s.transition !== 'none')) return buf;
+  const zip = await JSZip.loadAsync(buf);
+  for (const [i, s] of deck.slides.entries()) {
+    if (!s.transition || s.transition === 'none') continue;
+    const path = `ppt/slides/slide${i + 1}.xml`;
+    const xml = await zip.file(path)?.async('string');
+    if (!xml) continue;
+    const tr = `<p:transition spd="med">${TRANSITION_XML[s.transition]}</p:transition>`;
+    const at = xml.indexOf('</p:clrMapOvr>');
+    const next = at >= 0 ? xml.slice(0, at + 14) + tr + xml.slice(at + 14) : xml.replace('</p:cSld>', `</p:cSld>${tr}`);
+    zip.file(path, next);
+  }
+  return zip.generateAsync({ type: 'arraybuffer' });
 }
 
 function textProps(st: TextStyle) {
@@ -67,16 +150,26 @@ function textProps(st: TextStyle) {
     bold: st.bold,
     italic: st.italic,
     underline: st.underline ? { style: 'sng' } : undefined,
+    strike: st.strike ? 'sngStrike' : undefined,
+    lineSpacingMultiple: st.lineSpacing,
     align: st.align,
     valign: st.valign,
   } as Record<string, unknown>;
 }
+
+function tintHex(c: string, t: number) {
+  const n = parseInt((hex(c) ?? '6366F1'), 16);
+  const m = (s: number) => Math.round(((n >> s) & 255) + (255 - ((n >> s) & 255)) * t);
+  return ((m(16) << 16) | (m(8) << 8) | m(0)).toString(16).padStart(6, '0').toUpperCase();
+}
+const isDarkHex = (c: string) => bgIsDark(c);
 
 // ---------------- import ----------------
 const NS = {
   p: 'http://schemas.openxmlformats.org/presentationml/2006/main',
   a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
   r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  c: 'http://schemas.openxmlformats.org/drawingml/2006/chart',
 };
 
 const parseXml = (s: string) => new DOMParser().parseFromString(s, 'application/xml');
@@ -140,7 +233,9 @@ interface Placeholder {
 }
 
 function xfrmOf(spPr: Element | null) {
-  const x = kid(spPr, NS.a, 'xfrm');
+  return readXfrm(kid(spPr, NS.a, 'xfrm'));
+}
+function readXfrm(x: Element | null) {
   if (!x) return undefined;
   const off = kid(x, NS.a, 'off'), ext = kid(x, NS.a, 'ext');
   if (!off || !ext) return undefined;
@@ -150,6 +245,8 @@ function xfrmOf(spPr: Element | null) {
     w: Number(ext.getAttribute('cx')) / EMU_PER_PX,
     h: Number(ext.getAttribute('cy')) / EMU_PER_PX,
     rot: x.getAttribute('rot') ? Number(x.getAttribute('rot')) / 60000 : undefined,
+    flipH: x.getAttribute('flipH') === '1' || undefined,
+    flipV: x.getAttribute('flipV') === '1' || undefined,
   };
 }
 
@@ -229,6 +326,8 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
   }
 
   const slideIds = desc(pres.documentElement, NS.p, 'sldId');
+  let sawNum = false;
+  let footer: string | undefined;
   const slides: Slide[] = [];
   const cache = new Map<string, Document>();
   const load = async (p: string) => {
@@ -275,7 +374,22 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
           const target = embed ? rels[embed]?.target : undefined;
           const src = target ? await toDataUrl(zip, target) : null;
           const xf = xfrmOf(kid(node, NS.p, 'spPr'));
-          if (src && xf) els.push({ id: uid(), type: 'image', src, x: xf.x * scale, y: xf.y * scale, w: xf.w * scale, h: xf.h * scale, rot: xf.rot });
+          if (src && xf) els.push({ id: uid(), type: 'image', src, x: xf.x * scale, y: xf.y * scale, w: xf.w * scale, h: xf.h * scale, rot: xf.rot, flipH: xf.flipH, flipV: xf.flipV });
+          continue;
+        }
+        if (node.localName === 'graphicFrame') {
+          const xf = readXfrm(kid(node, NS.p, 'xfrm'));
+          if (!xf) continue;
+          const box = { id: uid(), x: xf.x * scale, y: xf.y * scale, w: xf.w * scale, h: xf.h * scale };
+          const tbl = desc(node, NS.a, 'tbl')[0];
+          if (tbl) { const t = readTable(tbl, theme, scale, box); if (t) els.push(t); continue; }
+          const chartRef = desc(node, NS.c, 'chart')[0];
+          const crid = chartRef?.getAttributeNS(NS.r, 'id') ?? chartRef?.getAttribute('r:id');
+          const chartPath = crid ? rels[crid]?.target : undefined;
+          if (chartPath && zip.file(chartPath)) {
+            const ch = readChart(await load(chartPath));
+            if (ch) els.push({ ...box, type: 'chart', ...ch });
+          }
           continue;
         }
         if (node.localName !== 'sp' && node.localName !== 'cxnSp') continue;
@@ -287,9 +401,11 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
         const inherited = ph ? findPh(layoutPh, phType!, phIdx) ?? findPh(masterPh, phType!, phIdx) : undefined;
         const layoutStyle = ph ? findPh(layoutPh, phType!, phIdx, false) : undefined;
         const masterStyle = ph ? findPh(masterPh, phType!, phIdx, false) : undefined;
-        if (!xf && inherited?.xfrm) xf = { ...inherited.xfrm, rot: undefined };
+        if (!xf && inherited?.xfrm) xf = { ...inherited.xfrm, rot: undefined, flipH: undefined, flipV: undefined };
         if (!xf) continue;
-        if (['sldNum', 'dt', 'ftr'].includes(phType ?? '')) continue;
+        if (phType === 'sldNum') { sawNum = true; continue; }
+        if (phType === 'ftr') { const ft = desc(node, NS.a, 't').map((x) => x.textContent).join('').trim(); if (ft) footer ??= ft; continue; }
+        if (phType === 'dt') continue;
 
         // text
         const txBody = kid(node, NS.p, 'txBody');
@@ -300,6 +416,8 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
         const inhAlgn = layoutStyle?.algn ?? masterStyle?.algn ?? (ph ? (isTitleType ? mStyles.title.algn : mStyles.body.algn) : undefined);
         let align: TextStyle['align'] = inhAlgn === 'ctr' ? 'center' : inhAlgn === 'r' ? 'right' : phType === 'ctrTitle' ? 'center' : 'left';
         let hasBullets = false;
+        let numbered = false;
+        let lineSpacing: number | undefined;
         let explicitAlign = false;
         for (const p of paras) {
           const pPr = kid(p, NS.a, 'pPr');
@@ -310,7 +428,9 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
           else if (algn === 'r') align = 'right';
           else if (algn === 'l') align = 'left';
           if (pPr && kid(pPr, NS.a, 'buChar')) hasBullets = true;
-          if (pPr && kid(pPr, NS.a, 'buAutoNum')) hasBullets = true;
+          if (pPr && kid(pPr, NS.a, 'buAutoNum')) { hasBullets = true; numbered = true; }
+          const spc = desc(kid(pPr, NS.a, 'lnSpc'), NS.a, 'spcPct')[0]?.getAttribute('val');
+          if (spc && lineSpacing === undefined) lineSpacing = Number(spc) / 100000;
           let text = '';
           for (const r of Array.from(p.children)) {
             if (r.localName === 'r' || r.localName === 'fld') {
@@ -341,6 +461,8 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
           bold: first?.getAttribute('b') ? first.getAttribute('b') === '1' : layoutStyle?.bold ?? masterStyle?.bold ?? (isTitle ? mStyles.title.bold : false),
           italic: first?.getAttribute('i') === '1',
           underline: !!first?.getAttribute('u') && first.getAttribute('u') !== 'none',
+          strike: !!first?.getAttribute('strike') && first.getAttribute('strike') !== 'noStrike' ? true : undefined,
+          lineSpacing: lineSpacing && Math.abs(lineSpacing - 1) > 0.01 ? Math.round(lineSpacing * 100) / 100 : undefined,
           align,
           valign: anchor === 'ctr' ? 'middle' : anchor === 'b' ? 'bottom' : isTitle ? 'middle' : 'top',
           fontFace: fontFace ?? undefined,
@@ -349,14 +471,27 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
         const fillColor = spFill ?? (!ph ? colorOf(desc(kid(node, NS.p, 'style'), NS.a, 'fillRef')[0] ?? null, theme) : undefined);
         const ln = kid(spPr, NS.a, 'ln');
         const lnColor = ln && !kid(ln, NS.a, 'noFill') ? colorOf(kid(ln, NS.a, 'solidFill'), theme) : undefined;
-        const base = { id: uid(), x: xf.x * scale, y: xf.y * scale, w: Math.max(4, xf.w * scale), h: Math.max(4, xf.h * scale), rot: xf.rot };
-        const shapeKind: ShapeKind | undefined =
-          node.localName === 'cxnSp' || geom === 'line' || geom?.includes('Connector') ? 'line'
-            : geom === 'ellipse' ? 'ellipse' : geom === 'roundRect' ? 'roundRect' : geom === 'triangle' ? 'triangle' : geom === 'rightArrow' ? 'rightArrow' : geom === 'rect' && (fillColor || lnColor) ? 'rect' : undefined;
+        const isLine = node.localName === 'cxnSp' || geom === 'line' || !!geom?.includes('Connector');
+        const lnW = ln?.getAttribute('w') ? Number(ln.getAttribute('w')) / 12700 : undefined;
+        const prstDash = desc(ln, NS.a, 'prstDash')[0]?.getAttribute('val');
+        const dash: ShapeEl['dash'] = !prstDash || prstDash === 'solid' ? undefined : /dot/i.test(prstDash) && !/dash/i.test(prstDash) ? 'dot' : 'dash';
+        const arrowEnd = [kid(ln, NS.a, 'tailEnd'), kid(ln, NS.a, 'headEnd')].some((x) => x && (x.getAttribute('type') ?? 'none') !== 'none');
+        // a line's box may be flat; give it room and keep it centred on the same path
+        const lineH = 20;
+        const base = isLine
+          ? lineBox(xf, scale, lineH)
+          : { id: uid(), x: xf.x * scale, y: xf.y * scale, w: Math.max(4, xf.w * scale), h: Math.max(4, xf.h * scale), rot: xf.rot, flipH: xf.flipH, flipV: xf.flipV };
+        const shapeKind: ShapeKind | undefined = isLine ? (arrowEnd ? 'arrowLine' : 'line') : geom && geom !== 'rect' ? FROM_PRST[geom] : geom === 'rect' && (fillColor || lnColor) ? 'rect' : undefined;
+        const alpha = kid(kid(spPr, NS.a, 'solidFill')?.firstElementChild ?? null, NS.a, 'alpha')?.getAttribute('val');
+        const extra = { opacity: alpha ? Number(alpha) / 100000 : undefined, shadow: desc(spPr, NS.a, 'outerShdw').length > 0 || undefined };
         if (!ph && shapeKind) {
-          els.push({ ...base, type: 'shape', shape: shapeKind, fill: fillColor ?? 'transparent', stroke: lnColor, strokeW: lnColor ? 2 : 0, text, style: { ...style, align: explicitAlign ? style.align : 'center', valign: anchor === 't' ? 'top' : anchor === 'b' ? 'bottom' : 'middle' } });
+          els.push({
+            ...base, ...extra, type: 'shape', shape: shapeKind, fill: fillColor ?? 'transparent', stroke: isLine ? lnColor ?? fillColor ?? '#1f2937' : lnColor,
+            strokeW: isLine ? lnW ?? 2 : lnColor ? lnW ?? 2 : 0, dash, text: isLine ? '' : text,
+            style: { ...style, align: explicitAlign ? style.align : 'center', valign: anchor === 't' ? 'top' : anchor === 'b' ? 'bottom' : 'middle' },
+          });
         } else if (text || ph) {
-          els.push({ ...base, type: 'text', text, style, fill: fillColor, bullets: hasBullets || (phType === 'body' && !!phIdx && lines.length > 1), placeholder: isTitle ? 'title' : phType === 'subTitle' ? 'subtitle' : ph ? 'body' : undefined });
+          els.push({ ...base, ...extra, type: 'text', text, style, fill: fillColor, bullets: hasBullets || (phType === 'body' && !!phIdx && lines.length > 1), numbered: numbered || undefined, placeholder: isTitle ? 'title' : phType === 'subTitle' ? 'subtitle' : ph ? 'body' : undefined });
         }
       }
     };
@@ -370,10 +505,15 @@ export async function readPptx(buf: ArrayBuffer): Promise<Deck> {
       const bodySp = desc(nd.documentElement, NS.p, 'sp').find((sp) => desc(sp, NS.p, 'ph')[0]?.getAttribute('type') === 'body');
       if (bodySp) notes = desc(bodySp, NS.a, 'p').map((p) => desc(p, NS.a, 't').map((x) => x.textContent).join('')).join('\n').trim() || undefined;
     }
-    slides.push({ id: uid(), bg, els, notes });
+    const trEl = kid(doc.documentElement, NS.p, 'transition');
+    const trKind = trEl ? Array.from(trEl.children).find((c) => c.namespaceURI === NS.p)?.localName : undefined;
+    const transition: Transition | undefined = !trEl ? undefined
+      : trKind === 'push' || trKind === 'pull' ? 'push' : trKind === 'wipe' || trKind === 'split' || trKind === 'strips' ? 'wipe'
+      : trKind === 'zoom' || trKind === 'zoomIn' ? 'zoom' : trKind === 'cover' ? 'cover' : 'fade';
+    slides.push({ id: uid(), bg, els, notes, hidden: doc.documentElement.getAttribute('show') === '0' || undefined, transition });
   }
   if (!slides.length) slides.push({ id: uid(), bg: '#ffffff', els: [] });
-  return { w: W, h: H, theme: 'paper', slides };
+  return { w: W, h: H, theme: 'paper', slides, slideNumbers: sawNum || undefined, footer };
 }
 
 function bgIsDark(c: string) {
@@ -381,4 +521,68 @@ function bgIsDark(c: string) {
   if (h.length !== 6) return false;
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
   return 0.299 * r + 0.587 * g + 0.114 * b < 110;
+}
+
+/** A line drawn across its box: re-centre it in a box tall enough to grab, rotated to the same angle. */
+function lineBox(xf: NonNullable<ReturnType<typeof readXfrm>>, scale: number, h: number) {
+  const w0 = xf.w * scale, h0 = xf.h * scale;
+  const cx = xf.x * scale + w0 / 2, cy = xf.y * scale + h0 / 2;
+  // the path goes corner to corner (flips choose which diagonal)
+  let ang = (Math.atan2(h0, w0) * 180) / Math.PI;
+  if (xf.flipH) ang = 180 - ang;
+  if (xf.flipV) ang = -ang;
+  ang += xf.rot ?? 0;
+  const len = Math.max(4, Math.hypot(w0, h0));
+  const rot = Math.round((((ang % 360) + 360) % 360) * 10) / 10;
+  return { id: uid(), x: cx - len / 2, y: cy - h / 2, w: len, h, rot: rot || undefined };
+}
+
+function readTable(tbl: Element, theme: Theme, scale: number, box: { id: string; x: number; y: number; w: number; h: number }): SlideEl | null {
+  const trs = kids(tbl, NS.a, 'tr');
+  if (!trs.length) return null;
+  const rows = trs.map((tr) => kids(tr, NS.a, 'tc').map((tc) => kids(kid(tc, NS.a, 'txBody'), NS.a, 'p').map((p) => desc(p, NS.a, 't').map((x) => x.textContent).join('')).join('\n')));
+  const cols = Math.max(...rows.map((r) => r.length));
+  for (const r of rows) while (r.length < cols) r.push('');
+  const tblPr = kid(tbl, NS.a, 'tblPr');
+  const firstFill = colorOf(kid(kid(kids(trs[0], NS.a, 'tc')[0], NS.a, 'tcPr'), NS.a, 'solidFill'), theme);
+  const rPr = desc(tbl, NS.a, 'rPr')[0] ?? desc(tbl, NS.a, 'endParaRPr')[0];
+  const sz = rPr?.getAttribute('sz');
+  return {
+    ...box, type: 'table', rows,
+    color: firstFill ?? theme.colors.accent1 ?? '#6366f1',
+    header: tblPr ? tblPr.getAttribute('firstRow') === '1' : true,
+    banded: tblPr ? tblPr.getAttribute('bandRow') === '1' : true,
+    style: textStyle({ fontSize: Math.round((sz ? Number(sz) / 100 : 14) * scale * 10) / 10, color: theme.colors.dk1 ?? '#1f2937', fontFace: theme.minorFont }),
+  };
+}
+
+function readChart(doc: Document): { chart: ChartType; data: ChartData; title?: string; legend: boolean } | null {
+  const plot = desc(doc.documentElement, NS.c, 'plotArea')[0];
+  if (!plot) return null;
+  const kinds: [string, ChartType][] = [['barChart', 'column'], ['bar3DChart', 'column'], ['lineChart', 'line'], ['line3DChart', 'line'], ['areaChart', 'area'], ['pieChart', 'pie'], ['pie3DChart', 'pie'], ['doughnutChart', 'doughnut'], ['scatterChart', 'scatter']];
+  let group: Element | null = null;
+  let chart: ChartType = 'column';
+  for (const [name, type] of kinds) { const g = kid(plot, NS.c, name); if (g) { group = g; chart = type; break; } }
+  if (!group) return null;
+  if (chart === 'column' && kid(group, NS.c, 'barDir')?.getAttribute('val') === 'bar') chart = 'bar';
+  const pts = (el: Element | null) => {
+    const out: string[] = [];
+    for (const pt of desc(el, NS.c, 'pt')) out[Number(pt.getAttribute('idx') ?? out.length)] = desc(pt, NS.c, 'v')[0]?.textContent ?? '';
+    return out;
+  };
+  const sers = kids(group, NS.c, 'ser');
+  let cats: string[] = [];
+  const series = sers.map((ser, i) => {
+    const catEl = kid(ser, NS.c, chart === 'scatter' ? 'xVal' : 'cat');
+    if (!cats.length) cats = pts(catEl);
+    const vals = pts(kid(ser, NS.c, chart === 'scatter' ? 'yVal' : 'val'));
+    const name = desc(kid(ser, NS.c, 'tx'), NS.c, 'v')[0]?.textContent ?? desc(kid(ser, NS.c, 'tx'), NS.a, 't')[0]?.textContent ?? `Series ${i + 1}`;
+    return { name, values: vals.map((v) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))) };
+  });
+  const n = Math.max(cats.length, ...series.map((x) => x.values.length));
+  cats = Array.from({ length: n }, (_, i) => cats[i] ?? String(i + 1));
+  for (const x of series) while (x.values.length < n) x.values.push(null);
+  const titleEl = desc(doc.documentElement, NS.c, 'title')[0];
+  const title = titleEl ? desc(titleEl, NS.a, 't').map((x) => x.textContent).join('') || undefined : undefined;
+  return { chart, data: { cats, series }, title, legend: desc(doc.documentElement, NS.c, 'legend').length > 0 };
 }

@@ -1,4 +1,19 @@
-export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'rightArrow' | 'line';
+import type { ChartType } from '../sheet/model';
+
+export type ShapeKind =
+  | 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'rtTriangle' | 'diamond' | 'pentagon' | 'hexagon' | 'octagon'
+  | 'parallelogram' | 'trapezoid' | 'star4' | 'star5' | 'star8' | 'heart' | 'plus' | 'callout' | 'cloud'
+  | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow' | 'leftRightArrow' | 'chevron' | 'homePlate'
+  | 'line' | 'arrowLine';
+
+/** Shapes in the order the Insert gallery shows them. */
+export const SHAPE_GROUPS: ShapeKind[][] = [
+  ['line', 'arrowLine', 'rect', 'roundRect', 'ellipse', 'triangle', 'rtTriangle', 'diamond', 'pentagon', 'hexagon', 'octagon', 'parallelogram', 'trapezoid'],
+  ['rightArrow', 'leftArrow', 'upArrow', 'downArrow', 'leftRightArrow', 'chevron', 'homePlate'],
+  ['star4', 'star5', 'star8', 'heart', 'plus', 'callout', 'cloud'],
+];
+
+export type Transition = 'none' | 'fade' | 'push' | 'wipe' | 'zoom' | 'cover';
 
 export interface TextStyle {
   fontSize: number; // pt
@@ -7,6 +22,9 @@ export interface TextStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strike?: boolean;
+  /** Line height multiplier. */
+  lineSpacing?: number;
   align: 'left' | 'center' | 'right';
   valign: 'top' | 'middle' | 'bottom';
 }
@@ -18,6 +36,11 @@ export interface BaseEl {
   w: number;
   h: number;
   rot?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  /** 0–1 */
+  opacity?: number;
+  shadow?: boolean;
 }
 
 export interface TextEl extends BaseEl {
@@ -27,6 +50,7 @@ export interface TextEl extends BaseEl {
   placeholder?: 'title' | 'subtitle' | 'body';
   fill?: string;
   bullets?: boolean;
+  numbered?: boolean;
 }
 
 export interface ShapeEl extends BaseEl {
@@ -35,8 +59,32 @@ export interface ShapeEl extends BaseEl {
   fill: string;
   stroke?: string;
   strokeW?: number;
+  dash?: 'solid' | 'dash' | 'dot';
   text: string;
   style: TextStyle;
+}
+
+export interface TableEl extends BaseEl {
+  type: 'table';
+  rows: string[][];
+  /** Header and banding color. */
+  color: string;
+  header: boolean;
+  banded: boolean;
+  style: TextStyle;
+}
+
+export interface ChartData {
+  cats: string[];
+  series: { name: string; values: (number | null)[] }[];
+}
+
+export interface ChartEl extends BaseEl {
+  type: 'chart';
+  chart: ChartType;
+  data: ChartData;
+  title?: string;
+  legend?: boolean;
 }
 
 export interface ImageEl extends BaseEl {
@@ -44,13 +92,18 @@ export interface ImageEl extends BaseEl {
   src: string;
 }
 
-export type SlideEl = TextEl | ShapeEl | ImageEl;
+export type SlideEl = TextEl | ShapeEl | ImageEl | TableEl | ChartEl;
+/** Elements that hold editable text with a text style. */
+export type TextualEl = TextEl | ShapeEl;
+export const isTextual = (e: SlideEl | null | undefined): e is TextualEl => !!e && (e.type === 'text' || e.type === 'shape');
 
 export interface Slide {
   id: string;
   bg: string;
   els: SlideEl[];
   notes?: string;
+  hidden?: boolean;
+  transition?: Transition;
 }
 
 export interface DeckTheme {
@@ -67,6 +120,57 @@ export interface Deck {
   h: number;
   theme: string;
   slides: Slide[];
+  slideNumbers?: boolean;
+  footer?: string;
+}
+
+export const SLIDE_SIZES = [
+  { id: '16:9', w: 960, h: 540 },
+  { id: '4:3', w: 960, h: 720 },
+  { id: '16:10', w: 960, h: 600 },
+  { id: 'A4', w: 960, h: 679 },
+] as const;
+
+/** Resize the slides, moving and scaling every element to keep the layout. */
+export function resizeDeck(deck: Deck, w: number, h: number): Deck {
+  const sx = w / deck.w, sy = h / deck.h;
+  const k = Math.min(sx, sy);
+  return {
+    ...deck,
+    w,
+    h,
+    slides: deck.slides.map((s) => ({
+      ...s,
+      els: s.els.map((e) => {
+        // keep proportions: scale by the smaller factor and re-center on the new axis
+        const nw = e.w * k, nh = e.h * k;
+        const cx = (e.x + e.w / 2) * sx, cy = (e.y + e.h / 2) * sy;
+        return { ...e, x: Math.round(cx - nw / 2), y: Math.round(cy - nh / 2), w: Math.round(nw), h: Math.round(nh) };
+      }),
+    })),
+  };
+}
+
+export function newTable(rows: number, cols: number, x: number, y: number, w: number, color: string, font?: string): TableEl {
+  return {
+    id: uid(), type: 'table', x, y, w, h: rows * 40,
+    rows: Array.from({ length: rows }, () => Array.from({ length: cols }, () => '')),
+    color, header: true, banded: true,
+    style: textStyle({ fontSize: 14, color: '#1f2937', fontFace: font }),
+  };
+}
+
+export function newChart(type: ChartType, x: number, y: number): ChartEl {
+  return {
+    id: uid(), type: 'chart', chart: type, x, y, w: 480, h: 300, legend: true, title: '',
+    data: {
+      cats: ['Q1', 'Q2', 'Q3', 'Q4'],
+      series: [
+        { name: 'Series 1', values: [4.3, 2.5, 3.5, 4.5] },
+        { name: 'Series 2', values: [2.4, 4.4, 1.8, 2.8] },
+      ],
+    },
+  };
 }
 
 export const THEMES: DeckTheme[] = [
@@ -129,7 +233,8 @@ export function applyTheme(deck: Deck, themeId: string): Deck {
       ...s,
       bg: s.bg.toLowerCase() === old.bg.toLowerCase() ? th.bg : s.bg,
       els: s.els.map((e) => {
-        if (e.type === 'image') return e;
+        if (e.type === 'image' || e.type === 'chart') return e;
+        if (e.type === 'table') return { ...e, color: map(e.color, e.color) === e.color && e.color.toLowerCase() === old.accent.toLowerCase() ? th.accent : map(e.color, e.color), style: { ...e.style, fontFace: e.style.fontFace === old.font ? th.font : e.style.fontFace } };
         const style = { ...e.style, color: map(e.style.color, e.style.color), fontFace: e.style.fontFace === old.font ? th.font : e.style.fontFace };
         if (e.type === 'shape') return { ...e, style, fill: map(e.fill, e.fill) };
         return { ...e, style };

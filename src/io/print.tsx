@@ -6,7 +6,7 @@ import { Engine, formatValue } from '../editors/sheet/formula';
 import { bordersOf, chartData, displayAt, evalCF, filteredOut } from '../editors/sheet/features';
 import { ChartSvg } from '../editors/sheet/Chart';
 import { addr, colName, DEFAULT_COL_W, parseAddr, type Sheet, type Workbook } from '../editors/sheet/model';
-import { SlideView } from '../editors/slides/SlideView';
+import { decoFor, SlideView } from '../editors/slides/SlideView';
 
 export type PrintMode = 'print' | 'pdf';
 /** Files printed through HTML. PDFs print their own rendered pages (editors/pdf/print). */
@@ -135,11 +135,13 @@ function PrintContent({ file, g }: { file: Printable; g: Geometry }) {
     );
   return (
     <div className="print-slides">
-      {file.data.slides.map((s) => (
-        <div key={s.id} className="print-slide" style={{ width: file.data.w, height: file.data.h }}>
-          <SlideView slide={s} w={file.data.w} h={file.data.h} />
-        </div>
-      ))}
+      {file.data.slides.map((s, i) =>
+        s.hidden ? null : (
+          <div key={s.id} className="print-slide" style={{ width: file.data.w, height: file.data.h }}>
+            <SlideView slide={s} w={file.data.w} h={file.data.h} deco={decoFor(file.data, i)} />
+          </div>
+        ),
+      )}
     </div>
   );
 }
