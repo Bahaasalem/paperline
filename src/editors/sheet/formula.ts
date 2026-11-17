@@ -602,8 +602,9 @@ export class Engine {
     if (this.cache.has(key)) return this.cache.get(key) as Scalar;
     const cell = sh.cells[`${colName(c)}${r + 1}`];
     if (!cell) return null;
-    if (!cell.v.startsWith('=') || cell.v.length < 2) {
-      const lit = literalValue(cell.v);
+    if (!cell.v.startsWith('=') || cell.v.length < 2 || cell.st?.fmt === 'text') {
+      // Cells formatted as Text keep exactly what was typed (leading zeros, formulas as text).
+      const lit = cell.st?.fmt === 'text' ? cell.v || null : literalValue(cell.v);
       this.cache.set(key, lit);
       return lit;
     }
@@ -740,13 +741,26 @@ export function formatValue(v: Scalar, fmt: string | undefined, dec?: number): s
       return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
     case 'percent':
       return (v * 100).toFixed(d) + '%';
-    case 'date': {
-      const dt = serialToDate(v);
-      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-    }
+    case 'date':
+      return ymd(serialToDate(v));
+    case 'time':
+      return hms(v);
+    case 'datetime':
+      return `${ymd(serialToDate(v))} ${hms(v)}`;
+    case 'scientific':
+      return v.toExponential(d ?? 2).replace(/e([+-])(\d)$/, 'E$10$2').replace('e', 'E');
+    case 'text':
+      return String(v);
     default:
       if (d !== undefined) return v.toFixed(d);
       if (Number.isInteger(v)) return String(v);
       return String(parseFloat(v.toPrecision(12)));
   }
+}
+
+const p2 = (n: number) => String(n).padStart(2, '0');
+const ymd = (dt: Date) => `${dt.getUTCFullYear()}-${p2(dt.getUTCMonth() + 1)}-${p2(dt.getUTCDate())}`;
+function hms(v: number) {
+  const secs = Math.round((v - Math.floor(v)) * 86400) % 86400;
+  return `${p2(Math.floor(secs / 3600))}:${p2(Math.floor(secs / 60) % 60)}:${p2(secs % 60)}`;
 }

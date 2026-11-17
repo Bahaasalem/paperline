@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import type { OpenFile } from '../types';
 import { expandToc, MARGIN_PX, PAGE, pageSize } from '../editors/doc/page';
 import { Engine, formatValue } from '../editors/sheet/formula';
+import { bordersOf, chartData, displayAt, evalCF, filteredOut } from '../editors/sheet/features';
+import { ChartSvg } from '../editors/sheet/Chart';
 import { addr, colName, DEFAULT_COL_W, parseAddr, type Sheet, type Workbook } from '../editors/sheet/model';
 import { SlideView } from '../editors/slides/SlideView';
 
@@ -46,44 +48,77 @@ function usedRows(sh: Sheet) {
 
 function SheetTable({ sheet, wb }: { sheet: Sheet; wb: Workbook }) {
   const engine = new Engine(wb);
+  const valueAt = (r: number, c: number) => engine.cellValue(sheet, r, c);
   const r2 = usedRows(sheet);
   const c2 = usedCols(sheet);
+  const hidden = new Set([...(sheet.hiddenR ?? []), ...filteredOut(sheet, valueAt)]);
+  const hiddenC = new Set(sheet.hiddenC ?? []);
+  const cf = evalCF(sheet, valueAt);
+  const cols = Array.from({ length: c2 + 1 }, (_, c) => c).filter((c) => !hiddenC.has(c));
+  const span = (r: number, c: number) => {
+    const m = sheet.merges?.find((x) => x.r1 === r && x.c1 === c);
+    if (!m) return null;
+    return {
+      rowSpan: Array.from({ length: m.r2 - m.r1 + 1 }, (_, i) => m.r1 + i).filter((x) => !hidden.has(x)).length,
+      colSpan: Array.from({ length: m.c2 - m.c1 + 1 }, (_, i) => m.c1 + i).filter((x) => !hiddenC.has(x)).length,
+    };
+  };
+  const covered = (r: number, c: number) => !!sheet.merges?.some((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2 && !(r === m.r1 && c === m.c1));
+  const line = (w?: number) => (w ? `${w}px solid #1f2937` : undefined);
   return (
-    <table className="print-sheet" dir="ltr">
-      <colgroup>
-        {Array.from({ length: c2 + 1 }, (_, c) => (
-          <col key={c} style={{ width: sheet.colW[c] ?? DEFAULT_COL_W }} />
-        ))}
-      </colgroup>
-      <tbody>
-        {Array.from({ length: r2 + 1 }, (_, r) => (
-          <tr key={r} data-row={r}>
-            {Array.from({ length: c2 + 1 }, (_, c) => {
-              const cell = sheet.cells[addr(r, c)];
-              const v = cell ? engine.cellValue(sheet, r, c) : null;
-              const st = cell?.st ?? {};
-              const style: CSSProperties = {
-                fontWeight: st.b ? 700 : undefined,
-                fontStyle: st.i ? 'italic' : undefined,
-                textDecoration: [st.u && 'underline', st.s && 'line-through'].filter(Boolean).join(' ') || undefined,
-                color: st.color,
-                background: st.bg,
-                textAlign: st.align ?? (typeof v === 'number' ? 'right' : 'left'),
-                fontSize: st.fontSize ? `${st.fontSize}pt` : undefined,
-                fontFamily: st.font ? `"${st.font}", "IBM Plex Sans Arabic", sans-serif` : undefined,
-                whiteSpace: st.wrap ? 'normal' : 'nowrap',
-                border: st.border ? '1px solid #94a3b8' : undefined,
-              };
-              return (
-                <td key={c} style={style} title={`${colName(c)}${r + 1}`} dir="auto">
-                  {formatValue(v, st.fmt, st.dec)}
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      <table className="print-sheet" dir="ltr">
+        <colgroup>
+          {cols.map((c) => (
+            <col key={c} style={{ width: sheet.colW[c] ?? DEFAULT_COL_W }} />
+          ))}
+        </colgroup>
+        <tbody>
+          {Array.from({ length: r2 + 1 }, (_, r) => r).filter((r) => !hidden.has(r)).map((r) => (
+            <tr key={r} data-row={r} style={{ height: sheet.rowH[r] }}>
+              {cols.map((c) => {
+                if (covered(r, c)) return null;
+                const cell = sheet.cells[addr(r, c)];
+                const v = cell ? valueAt(r, c) : null;
+                const st = cell?.st ?? {};
+                const look = cf.get(addr(r, c));
+                const bd = bordersOf(st);
+                const style: CSSProperties = {
+                  fontWeight: st.b ? 700 : undefined,
+                  fontStyle: st.i ? 'italic' : undefined,
+                  textDecoration: [st.u && 'underline', st.s && 'line-through'].filter(Boolean).join(' ') || undefined,
+                  color: look?.color ?? st.color,
+                  background: look?.bar
+                    ? `linear-gradient(90deg, ${look.bar.color} ${look.bar.pct * 100}%, transparent ${look.bar.pct * 100}%)`
+                    : look?.bg ?? st.bg,
+                  textAlign: st.align ?? (typeof v === 'number' ? 'right' : 'left'),
+                  verticalAlign: st.va ?? 'bottom',
+                  fontSize: st.fontSize ? `${st.fontSize}pt` : undefined,
+                  fontFamily: st.font ? `"${st.font}", "IBM Plex Sans Arabic", sans-serif` : undefined,
+                  whiteSpace: st.wrap ? 'normal' : 'nowrap',
+                  borderTop: line(bd?.t),
+                  borderRight: line(bd?.r),
+                  borderBottom: line(bd?.b),
+                  borderLeft: line(bd?.l),
+                  printColorAdjust: 'exact',
+                  WebkitPrintColorAdjust: 'exact',
+                };
+                return (
+                  <td key={c} style={style} title={`${colName(c)}${r + 1}`} dir="auto" {...span(r, c)}>
+                    {formatValue(v, st.fmt, st.dec)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {sheet.charts?.map((ch) => (
+        <div key={ch.id} className="print-chart">
+          <ChartSvg type={ch.type} data={chartData(ch.range, valueAt, (r, c) => displayAt(sheet, valueAt, r, c))} w={ch.w} h={ch.h} title={ch.title} legend={ch.legend !== false} />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -119,7 +154,7 @@ async function settle(root: HTMLElement) {
 function pageBreaks(container: HTMLElement, contentH: number, kind: Printable['kind']): number[] {
   const top = container.getBoundingClientRect().top;
   const blocks: { y: number; bottom: number; force: boolean }[] = [];
-  const els = kind === 'sheet' ? Array.from(container.querySelectorAll('tr')) : Array.from(container.children);
+  const els = kind === 'sheet' ? Array.from(container.querySelectorAll('tr, .print-chart')) : Array.from(container.children);
   for (const el of els) {
     const r = el.getBoundingClientRect();
     blocks.push({ y: r.top - top, bottom: r.bottom - top, force: el.classList.contains('page-break') });
@@ -167,8 +202,7 @@ export async function runPdf(root: HTMLElement, file: Printable): Promise<Blob> 
   }
   const content = root.firstElementChild as HTMLElement;
   const contentH = g.pageH - 2 * g.margin;
-  const inner = file.kind === 'sheet' ? (content.querySelector('table') as HTMLElement) : content;
-  const breaks = pageBreaks(inner, contentH, file.kind);
+  const breaks = pageBreaks(content, contentH, file.kind);
   const setup = file.kind === 'doc' ? file.data.page : null;
   const paper = setup?.color || '#ffffff';
   const canvas = await html2canvas(content, { scale, backgroundColor: paper, useCORS: true, logging: false });

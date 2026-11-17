@@ -1,5 +1,11 @@
-export type NumFmt = 'general' | 'number' | 'currency' | 'percent' | 'date';
-export type BorderStyle = 'none' | 'all' | 'outer' | 'bottom';
+export type NumFmt = 'general' | 'number' | 'currency' | 'percent' | 'date' | 'time' | 'datetime' | 'scientific' | 'text';
+/** Border width per side: 1 thin, 2 thick. */
+export interface Borders {
+  t?: number;
+  r?: number;
+  b?: number;
+  l?: number;
+}
 
 export interface CellStyle {
   b?: boolean;
@@ -15,13 +21,58 @@ export interface CellStyle {
   /** Font family; Calibri (Excel's default) when unset. */
   font?: string;
   wrap?: boolean;
+  /** Legacy: thin border on every side. New files use `bd`. */
   border?: boolean;
+  bd?: Borders;
+  va?: 'top' | 'middle' | 'bottom';
 }
 
 export interface Cell {
   /** Raw input: a literal ("12", "hello") or a formula ("=SUM(A1:A3)") */
   v: string;
   st?: CellStyle;
+  /** A note shown when hovering the cell. */
+  note?: string;
+  /** Data validation: the cell offers this list as a dropdown. */
+  list?: string[];
+}
+
+export type CFKind = 'gt' | 'lt' | 'between' | 'eq' | 'text' | 'dup' | 'top' | 'bottom' | 'aboveAvg' | 'blank' | 'bar' | 'scale';
+export interface CFRule {
+  id: string;
+  range: Range;
+  kind: CFKind;
+  a?: string;
+  b?: string;
+  /** Highlight style for rule kinds that color matching cells. */
+  bg?: string;
+  color?: string;
+  /** Bar color, or the high color of a color scale. */
+  c1?: string;
+  /** Low color of a color scale. */
+  c2?: string;
+  /** Optional middle color of a color scale. */
+  mid?: string;
+}
+
+export type ChartType = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'scatter';
+export interface ChartSpec {
+  id: string;
+  type: ChartType;
+  range: Range;
+  title?: string;
+  /** Position and size in unzoomed grid pixels (relative to the cell area). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  legend?: boolean;
+}
+
+export interface SheetFilter {
+  range: Range;
+  /** Column index → display values to show. A column with no entry is not filtered. */
+  show: Record<number, string[]>;
 }
 
 export interface Sheet {
@@ -32,6 +83,12 @@ export interface Sheet {
   colW: Record<number, number>;
   rowH: Record<number, number>;
   freezeTop?: boolean;
+  merges?: Range[];
+  hiddenR?: number[];
+  hiddenC?: number[];
+  filter?: SheetFilter;
+  cf?: CFRule[];
+  charts?: ChartSpec[];
 }
 
 export interface Workbook {
@@ -127,12 +184,63 @@ export function shiftSheet(sh: Sheet, axis: 'r' | 'c', at: number, delta: number
     }
     return out;
   };
+  const shiftIdx = (list?: number[]) => {
+    if (!list) return list;
+    const out = list.filter((i) => !(delta < 0 && i >= at && i < at - delta)).map((i) => (i >= at ? i + delta : i));
+    return out.length ? out : undefined;
+  };
+  const merges = sh.merges?.map((m) => shiftRange(m, axis, at, delta)).filter((m): m is Range => !!m && (m.r2 > m.r1 || m.c2 > m.c1));
+  const cf = sh.cf?.map((x) => ({ ...x, range: shiftRange(x.range, axis, at, delta) })).filter((x): x is CFRule => !!x.range);
+  const charts = sh.charts?.map((x) => ({ ...x, range: shiftRange(x.range, axis, at, delta) })).filter((x): x is ChartSpec => !!x.range);
+  const fr = sh.filter && shiftRange(sh.filter.range, axis, at, delta);
+  let filter: SheetFilter | undefined;
+  if (sh.filter && fr) {
+    const show: Record<number, string[]> = {};
+    for (const [k, v] of Object.entries(sh.filter.show)) {
+      const i = Number(k);
+      if (axis === 'c' && delta < 0 && i >= at && i < at - delta) continue;
+      show[axis === 'c' && i >= at ? i + delta : i] = v;
+    }
+    filter = { range: fr, show };
+  }
   return {
     ...sh,
     cells,
+    merges: merges?.length ? merges : undefined,
+    cf: cf?.length ? cf : undefined,
+    charts: charts?.length ? charts : undefined,
+    filter,
+    hiddenR: axis === 'r' ? shiftIdx(sh.hiddenR) : sh.hiddenR,
+    hiddenC: axis === 'c' ? shiftIdx(sh.hiddenC) : sh.hiddenC,
     rows: axis === 'r' ? Math.max(1, sh.rows + delta) : sh.rows,
     cols: axis === 'c' ? Math.max(1, sh.cols + delta) : sh.cols,
     rowH: axis === 'r' ? shiftMap(sh.rowH) : sh.rowH,
     colW: axis === 'c' ? shiftMap(sh.colW) : sh.colW,
   };
+}
+
+/** Move a range when rows/cols are inserted (delta>0) or deleted (delta<0) at `at`. Null when it was deleted entirely. */
+export function shiftRange(rg: Range, axis: 'r' | 'c', at: number, delta: number): Range | null {
+  const [lo, hi] = axis === 'r' ? [rg.r1, rg.r2] : [rg.c1, rg.c2];
+  const move = (i: number, end: boolean) => {
+    if (delta > 0) return i >= at ? i + delta : i;
+    const n = -delta;
+    if (i < at) return i;
+    if (i >= at + n) return i - n;
+    return end ? at - 1 : at; // inside the deleted block: clamp to its edge
+  };
+  let a = move(lo, false), b = move(hi, true);
+  if (delta < 0 && lo >= at && hi < at - delta) return null;
+  if (b < a) b = a;
+  a = Math.max(0, a);
+  return axis === 'r' ? { ...rg, r1: a, r2: b } : { ...rg, c1: a, c2: b };
+}
+
+export const inRange = (rg: Range, r: number, c: number) => r >= rg.r1 && r <= rg.r2 && c >= rg.c1 && c <= rg.c2;
+export const rangesOverlap = (a: Range, b: Range) => a.r1 <= b.r2 && b.r1 <= a.r2 && a.c1 <= b.c2 && b.c1 <= a.c2;
+export const rangeRef = (rg: Range) => (rg.r1 === rg.r2 && rg.c1 === rg.c2 ? addr(rg.r1, rg.c1) : `${addr(rg.r1, rg.c1)}:${addr(rg.r2, rg.c2)}`);
+export function parseRange(s: string): Range | null {
+  const [a, b] = s.trim().split(':');
+  const p = parseAddr(a), q = b ? parseAddr(b) : p;
+  return p && q ? normRange({ r1: p.r, c1: p.c, r2: q.r, c2: q.c }) : null;
 }
