@@ -3,7 +3,7 @@ import {
   popGraphicsState, pushGraphicsState, rgb, type PDFImage,
 } from 'pdf-lib';
 import JSZip from 'jszip';
-import { b64ToBytes, pageLabel, rotTransform, shownSize, type Annot, type PdfDoc, type PdfPage, type TextAnnot } from './model';
+import { b64ToBytes, isStdFont, pageLabel, rotTransform, shownSize, type Annot, type PdfDoc, type PdfPage, type TextAnnot } from './model';
 import { pdfjs, sourcePage } from './pdfjs';
 import { arrowHead, decorPos, drawTextBox, inkPath, isRtl, loadImage, renderPageCanvas } from './render';
 
@@ -127,7 +127,8 @@ async function drawAnnotsPdf(pdf: PDFDocument, page: PDFPage, fonts: Fonts, anno
       }
       case 'text': {
         if (a.bg) page.drawRectangle({ x: a.x, y: Y(a.y + a.h), width: a.w, height: a.h, color: color(a.bg) });
-        if (!latinOnly(a.text)) {
+        // Device fonts and non-Latin scripts cannot use the standard PDF fonts: embed the text as an image.
+        if (!latinOnly(a.text) || !isStdFont(a.font)) {
           const img = await embedDataUrl(pdf, textBoxPng({ ...a, bg: undefined }));
           page.drawImage(img, { x: a.x, y: Y(a.y + a.h), width: a.w, height: a.h });
           break;

@@ -8,7 +8,7 @@ import {
 import { useI18n } from '../../i18n';
 import { Btn, ColorBtn, Group, Menu, MenuItem, Ribbon, Select } from '../../ui/Ribbon';
 import { useHistory } from '../useHistory';
-import { FONTS } from '../doc/DocEditor';
+import { FontPicker } from '../../ui/FontPicker';
 import {
   applyTheme, makeSlide, textStyle, THEMES, themeOf, uid, type Deck, type Layout, type ShapeKind, type Slide, type SlideEl, type TextEl, type TextStyle,
 } from './model';
@@ -246,7 +246,7 @@ export function SlidesEditor({ data, onChange }: Props) {
     <Group label={t('font')}>
       <div className="r-col">
         <div className="r-row">
-          <Select label={t('font')} value={st?.fontFace ?? theme.font} options={FONTS} onChange={(f) => updateStyle({ fontFace: f })} width={140} />
+          <FontPicker value={st?.fontFace ?? theme.font} onChange={(f) => updateStyle({ fontFace: f })} width={140} />
           <Select label={t('size')} value={st?.fontSize ?? 18} options={[10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 60, 72, 96].map((x) => ({ value: x, label: String(x) }))} onChange={(v) => updateStyle({ fontSize: v })} width={60} />
         </div>
         <div className="r-row">

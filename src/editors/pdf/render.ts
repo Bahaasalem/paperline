@@ -1,4 +1,4 @@
-import { FONT_CSS, pageLabel, rotTransform, shownSize, type Annot, type PageDecor, type PdfDoc, type PdfPage, type TextAnnot } from './model';
+import { annotFont, pageLabel, rotTransform, shownSize, type Annot, type PageDecor, type PdfDoc, type PdfPage, type TextAnnot } from './model';
 import { sourcePage } from './pdfjs';
 
 /** Draw the annotations of a page in page coordinates (ctx already scaled). */
@@ -206,7 +206,7 @@ export function drawTextBox(ctx: CanvasRenderingContext2D, a: TextAnnot) {
     ctx.fillRect(a.x, a.y, a.w, a.h);
   }
   ctx.fillStyle = a.color;
-  ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? '700 ' : ''}${a.size}px ${FONT_CSS[a.font]}`;
+  ctx.font = `${a.italic ? 'italic ' : ''}${a.bold ? '700 ' : ''}${a.size}px ${annotFont(a.font)}`;
   ctx.textBaseline = 'top';
   const lines = wrapLines(ctx, a.text, a.w - 4);
   const lh = a.size * 1.25;

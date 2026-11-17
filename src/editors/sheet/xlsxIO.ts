@@ -73,6 +73,7 @@ export async function readXlsx(buf: ArrayBuffer): Promise<Workbook> {
         if (f?.underline) st.u = true;
         if (f?.strike) st.s = true;
         if (f?.size && f.size !== 11) st.fontSize = f.size;
+        if (f?.name && f.name !== 'Calibri') st.font = f.name;
         const fc = argbToHex(f?.color?.argb);
         if (fc && fc !== '#000000') st.color = fc;
         const fill = c.fill as ExcelJS.FillPattern | undefined;
@@ -138,6 +139,7 @@ export async function writeXlsx(book: Workbook): Promise<Blob> {
         underline: st.u,
         strike: st.s,
         size: st.fontSize ?? 11,
+        name: st.font ?? 'Calibri',
         color: st.color ? { argb: hexToArgb(st.color) } : undefined,
       };
       if (st.bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hexToArgb(st.bg) } };

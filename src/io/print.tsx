@@ -69,6 +69,7 @@ function SheetTable({ sheet, wb }: { sheet: Sheet; wb: Workbook }) {
                 background: st.bg,
                 textAlign: st.align ?? (typeof v === 'number' ? 'right' : 'left'),
                 fontSize: st.fontSize ? `${st.fontSize}pt` : undefined,
+                fontFamily: st.font ? `"${st.font}", "IBM Plex Sans Arabic", sans-serif` : undefined,
                 whiteSpace: st.wrap ? 'normal' : 'nowrap',
                 border: st.border ? '1px solid #94a3b8' : undefined,
               };

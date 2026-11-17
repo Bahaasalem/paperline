@@ -8,8 +8,9 @@ import {
 import { useI18n } from '../../i18n';
 import { Btn, ColorBtn, Group, Menu, MenuItem, Ribbon, Select } from '../../ui/Ribbon';
 import { useHistory } from '../useHistory';
+import { FontPicker } from '../../ui/FontPicker';
 import {
-  annotBounds, blankPage, FONT_CSS, isBoxLike, moveAnnot, pageLabel, pid, rotTransform, shownSize,
+  annotBounds, blankPage, annotFont, FONT_CSS as FONT_CSS_STD, isBoxLike, moveAnnot, pageLabel, pid, rotTransform, shownSize,
   type Annot, type BoxLike, type PdfDoc, type PdfPage, type Rot, type TextAnnot,
 } from './model';
 import { importPdf, pageText, sourcePage, type TextItem } from './pdfjs';
@@ -373,7 +374,7 @@ export function PdfEditor({ data, name, onChange }: Props) {
             {sw}
           </div>
           <div className="r-row">
-            <Select label={t('font')} value={textSel?.font ?? style.font} options={[{ value: 'sans', label: 'Sans' }, { value: 'serif', label: 'Serif' }, { value: 'mono', label: 'Mono' }] as { value: TextAnnot['font']; label: string }[]} onChange={(v) => applyStyle({ font: v })} width={78} />
+            <FontPicker value={textSel?.font ?? style.font} onChange={(v) => applyStyle({ font: v })} width={120} extraLabel={t('pdfFonts')} extra={[{ value: 'sans', label: 'Helvetica', css: FONT_CSS_STD.sans }, { value: 'serif', label: 'Times', css: FONT_CSS_STD.serif }, { value: 'mono', label: 'Courier', css: FONT_CSS_STD.mono }]} />
             <Select label={t('size')} value={textSel?.size ?? style.size} options={[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72].map((v) => ({ value: v, label: String(v) }))} onChange={(v) => applyStyle({ size: v })} width={58} />
             <Btn icon={<Bold size={16} />} label={t('bold')} active={textSel?.bold ?? style.bold} onClick={() => applyStyle({ bold: !(textSel?.bold ?? style.bold) })} />
             <Btn icon={<Italic size={16} />} label={t('italic')} active={textSel?.italic ?? style.italic} onClick={() => applyStyle({ italic: !(textSel?.italic ?? style.italic) })} />
@@ -765,7 +766,7 @@ function AnnotShape({ a, editing, children }: { a: Annot; editing?: boolean; chi
             <div
               className={`pdf-textbox ${editing ? 'editing' : ''}`}
               dir="auto"
-              style={{ fontSize: a.size, color: a.color, fontFamily: FONT_CSS[a.font], fontWeight: a.bold ? 700 : 400, fontStyle: a.italic ? 'italic' : undefined, textAlign: a.align, background: a.bg }}
+              style={{ fontSize: a.size, color: a.color, fontFamily: annotFont(a.font), fontWeight: a.bold ? 700 : 400, fontStyle: a.italic ? 'italic' : undefined, textAlign: a.align, background: a.bg }}
             >
               {a.text}
             </div>
@@ -1095,7 +1096,7 @@ function TextEditor({ a, onChange, onDone, gesture }: { a: TextAnnot; onChange: 
       className="pdf-textbox editing"
       dir="auto"
       value={a.text}
-      style={{ fontSize: a.size, color: a.color, fontFamily: FONT_CSS[a.font], fontWeight: a.bold ? 700 : 400, fontStyle: a.italic ? 'italic' : undefined, textAlign: a.align, background: a.bg ?? 'rgba(255,255,255,.6)' }}
+      style={{ fontSize: a.size, color: a.color, fontFamily: annotFont(a.font), fontWeight: a.bold ? 700 : 400, fontStyle: a.italic ? 'italic' : undefined, textAlign: a.align, background: a.bg ?? 'rgba(255,255,255,.6)' }}
       onPointerDown={(e) => e.stopPropagation()}
       onChange={(e) => {
         const el = e.currentTarget;

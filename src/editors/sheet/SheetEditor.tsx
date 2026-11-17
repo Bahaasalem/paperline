@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { Btn, ColorBtn, Group, Ribbon, Select } from '../../ui/Ribbon';
+import { FontPicker } from '../../ui/FontPicker';
+import { familyCss } from '../../fonts';
 import { useHistory } from '../useHistory';
 import {
   addr, colName, DEFAULT_COL_W, DEFAULT_ROW_H, newSheet, normRange, parseAddr, shiftSheet,
@@ -455,6 +457,7 @@ export function SheetEditor({ data, onChange }: Props) {
         <Btn icon={<Redo2 size={18} />} label={t('redo')} onClick={redo} />
       </Group>
       <Group label={t('font')}>
+        <FontPicker value={activeStyle.font ?? 'Calibri'} onChange={(f) => { applyStyle({ font: f === 'Calibri' ? undefined : f }); focusGrid(); }} width={140} />
         <Select label={t('size')} value={activeStyle.fontSize ?? 11} options={sizes} onChange={(v) => applyStyle({ fontSize: v === 11 ? undefined : v })} width={64} />
         <Btn icon={<Bold size={18} />} label={t('bold')} active={!!activeStyle.b} onClick={() => toggleStyle('b')} />
         <Btn icon={<Italic size={18} />} label={t('italic')} active={!!activeStyle.i} onClick={() => toggleStyle('i')} />
@@ -613,6 +616,7 @@ export function SheetEditor({ data, onChange }: Props) {
                     background: st.bg,
                     textAlign: st.align ?? (isNum ? 'right' : typeof v === 'boolean' || (typeof v === 'object' && v !== null) ? 'center' : 'start'),
                     fontSize: st.fontSize ? `${st.fontSize}pt` : undefined,
+                    fontFamily: st.font ? familyCss(st.font) : undefined,
                     whiteSpace: st.wrap ? 'normal' : 'nowrap',
                     zIndex: !st.wrap && !isNum && text && !st.bg ? 1 : undefined,
                   };

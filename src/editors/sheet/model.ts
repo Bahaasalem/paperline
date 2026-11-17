@@ -12,6 +12,8 @@ export interface CellStyle {
   fmt?: NumFmt;
   dec?: number;
   fontSize?: number;
+  /** Font family; Calibri (Excel's default) when unset. */
+  font?: string;
   wrap?: boolean;
   border?: boolean;
 }

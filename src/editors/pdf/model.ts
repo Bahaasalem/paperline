@@ -13,7 +13,8 @@ export interface TextAnnot extends AnnotBase {
   text: string;
   size: number; // pt
   color: string;
-  font: 'sans' | 'serif' | 'mono';
+  /** 'sans' | 'serif' | 'mono' are the PDF standard fonts (real text); any other family is a device font. */
+  font: string;
   bold?: boolean;
   italic?: boolean;
   align?: 'left' | 'center' | 'right';
@@ -191,7 +192,7 @@ export function moveAnnot(a: Annot, dx: number, dy: number): Annot {
   }
 }
 
-export const FONT_CSS: Record<TextAnnot['font'], string> = {
+export const FONT_CSS: Record<string, string> = {
   sans: 'Helvetica, Arial, "IBM Plex Sans Arabic", sans-serif',
   serif: '"Times New Roman", Times, serif',
   mono: '"Courier New", Courier, monospace',
@@ -200,3 +201,7 @@ export const FONT_CSS: Record<TextAnnot['font'], string> = {
 export function pageLabel(n: number, total: number, fmt: NonNullable<PageDecor['pageNumbers']>['fmt']) {
   return fmt === 'n-of-N' ? `${n} / ${total}` : fmt === 'page-n' ? `Page ${n}` : String(n);
 }
+
+export const isStdFont = (f: string) => f === 'sans' || f === 'serif' || f === 'mono';
+/** CSS font-family for a text annotation. */
+export const annotFont = (f: string) => FONT_CSS[f] ?? `"${f}", "IBM Plex Sans Arabic", sans-serif`;

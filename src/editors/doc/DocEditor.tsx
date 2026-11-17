@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { Btn, ColorBtn, Group, Ribbon, Select } from '../../ui/Ribbon';
+import { FontPicker } from '../../ui/FontPicker';
+import { familyCss } from '../../fonts';
 import type { DocData } from '../../types';
 import { docExtensions } from './extensions';
 import { MARGIN_PX, PAGE } from './page';
@@ -18,16 +20,6 @@ interface Props {
   onEditor?: (e: Editor | null) => void;
 }
 
-export const FONTS = [
-  { value: 'Inter', label: 'Inter' },
-  { value: 'Calibri', label: 'Calibri' },
-  { value: 'Arial', label: 'Arial' },
-  { value: 'Georgia', label: 'Georgia' },
-  { value: 'Times New Roman', label: 'Times New Roman' },
-  { value: 'Courier New', label: 'Courier New' },
-  { value: 'IBM Plex Sans Arabic', label: 'IBM Plex Sans Arabic' },
-  { value: 'Tahoma', label: 'Tahoma' },
-];
 const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
 
 
@@ -112,7 +104,7 @@ export function DocEditor({ data, onChange, onEditor }: Props) {
       <Group label={t('font')}>
         <div className="r-col">
           <div className="r-row">
-            <Select label={t('font')} value={s.font} options={FONTS} onChange={(f) => chain().setFontFamily(f).run()} width={150} />
+            <FontPicker value={s.font} onChange={(f) => chain().setFontFamily(familyCss(f)).run()} width={150} />
             <Select label={t('size')} value={s.size} options={SIZES.map((x) => ({ value: x, label: String(x) }))} onChange={(v) => chain().setFontSize(`${v}pt`).run()} width={60} />
           </div>
           <div className="r-row">

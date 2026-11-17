@@ -111,7 +111,7 @@ const PALETTE = [
  * Popups open under their trigger with fixed positioning, so the ribbon's
  * horizontal scrolling never clips them. Flips to the other edge near the window side.
  */
-function usePopStyle(ref: React.RefObject<HTMLDivElement | null>, open: boolean, align: 'start' | 'end' = 'start', width = 260): CSSProperties | undefined {
+export function usePopStyle(ref: React.RefObject<HTMLDivElement | null>, open: boolean, align: 'start' | 'end' = 'start', width = 260): CSSProperties | undefined {
   const [st, setSt] = useState<CSSProperties>();
   useLayoutEffect(() => {
     if (!open || !ref.current) return;
@@ -121,7 +121,7 @@ function usePopStyle(ref: React.RefObject<HTMLDivElement | null>, open: boolean,
       const fromRight = (align === 'end') !== rtl;
       let left = fromRight ? r.right - width : r.left;
       left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
-      setSt({ position: 'fixed', top: r.bottom + 6, left, insetInlineStart: 'auto', insetInlineEnd: 'auto', maxHeight: window.innerHeight - r.bottom - 16, overflowY: 'auto' });
+      setSt({ position: 'fixed', top: r.bottom + 6, left, insetInlineStart: 'auto', insetInlineEnd: 'auto', maxHeight: Math.min(480, window.innerHeight - r.bottom - 16), overflowY: 'auto' });
     };
     place();
     window.addEventListener('resize', place);

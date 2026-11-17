@@ -240,6 +240,13 @@ const en = {
   author: 'Author',
   subject: 'Subject',
   pdfPassword: 'This PDF is password protected. Password-protected files are not supported yet.',
+  searchFonts: 'Search fonts',
+  recentFonts: 'Recently used',
+  appFonts: 'Paperline fonts',
+  deviceFonts: 'On this device',
+  useFont: 'Use',
+  showAllFonts: 'Show every font on this device',
+  pdfFonts: 'PDF standard (selectable text)',
 } as const;
 
 export type Key = keyof typeof en;
@@ -478,6 +485,13 @@ const ar: Record<Key, string> = {
   author: 'المؤلف',
   subject: 'الموضوع',
   pdfPassword: 'هذا الملف محمي بكلمة مرور. الملفات المحمية غير مدعومة بعد.',
+  searchFonts: 'ابحث عن خط',
+  recentFonts: 'المستخدمة مؤخرًا',
+  appFonts: 'خطوط Paperline',
+  deviceFonts: 'على هذا الجهاز',
+  useFont: 'استخدم',
+  showAllFonts: 'عرض كل خطوط هذا الجهاز',
+  pdfFonts: 'خطوط PDF القياسية (نص قابل للتحديد)',
 };
 
 const dicts: Record<Lang, Record<Key, string>> = { en, ar };
