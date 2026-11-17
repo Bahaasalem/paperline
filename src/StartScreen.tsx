@@ -1,20 +1,22 @@
 import { useRef, useState } from 'react';
-import { FileText, FileType2, Sheet, Presentation, NotebookPen, Database, Newspaper, Workflow, GanttChart, Upload, Languages } from 'lucide-react';
+import { FileText, NotebookPen, Database, Newspaper, Workflow, GanttChart, Upload, Languages, LockKeyhole } from 'lucide-react';
 import { useI18n, type Key } from './i18n';
-import type { DocKind } from './types';
+import type { DocKind, OpenFile } from './types';
+import { TEMPLATES } from './templates';
 import { ACCEPT } from './io/files';
-import { Logo } from './ui/Logo';
+import { AppIcon, Wordmark } from './ui/Logo';
 
 interface Props {
   onNew: (k: DocKind) => void;
   onOpen: (f: File) => void;
+  onTemplate: (f: Omit<OpenFile, 'id'>) => void;
 }
 
-const MAIN: { kind: DocKind; icon: typeof FileText; label: Key; desc: Key; cls: string }[] = [
-  { kind: 'doc', icon: FileText, label: 'kind_doc', desc: 'kind_doc_desc', cls: 'doc' },
-  { kind: 'sheet', icon: Sheet, label: 'kind_sheet', desc: 'kind_sheet_desc', cls: 'sheet' },
-  { kind: 'slides', icon: Presentation, label: 'kind_slides', desc: 'kind_slides_desc', cls: 'slides' },
-  { kind: 'pdf', icon: FileType2, label: 'kind_pdf', desc: 'kind_pdf_desc', cls: 'pdf' },
+const MAIN: { kind: DocKind; label: Key; desc: Key }[] = [
+  { kind: 'doc', label: 'kind_doc', desc: 'kind_doc_desc' },
+  { kind: 'sheet', label: 'kind_sheet', desc: 'kind_sheet_desc' },
+  { kind: 'slides', label: 'kind_slides', desc: 'kind_slides_desc' },
+  { kind: 'pdf', label: 'kind_pdf', desc: 'kind_pdf_desc' },
 ];
 
 const SOON: { icon: typeof FileText; label: Key; desc: Key }[] = [
@@ -25,49 +27,49 @@ const SOON: { icon: typeof FileText; label: Key; desc: Key }[] = [
   { icon: GanttChart, label: 'kind_project', desc: 'kind_project_desc' },
 ];
 
-export function StartScreen({ onNew, onOpen }: Props) {
-  const { t, toggle } = useI18n();
+function greeting(): Key {
+  const h = new Date().getHours();
+  return h < 5 ? 'helloEvening' : h < 12 ? 'helloMorning' : h < 18 ? 'helloAfternoon' : 'helloEvening';
+}
+
+export function StartScreen({ onNew, onOpen, onTemplate }: Props) {
+  const { t, toggle, lang } = useI18n();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   return (
     <div className="start">
       <header className="start-head">
-        <div className="brand">
-          <Logo size={40} />
-          <div>
-            <h1>{t('appName')}</h1>
-            <p>{t('tagline')}</p>
-          </div>
-        </div>
+        <Wordmark size={34} />
         <button className="lang-btn" onClick={toggle}>
           <Languages size={16} /> {t('language')}
         </button>
       </header>
 
-      <section>
-        <h2>{t('createTitle')}</h2>
+      <section className="hero">
+        <p className="hero-hi">{t(greeting())}</p>
+        <h1>{t('createTitle')}</h1>
         <div className="kind-grid">
-          {MAIN.map(({ kind, icon: Icon, label, desc, cls }) => (
-            <button key={kind} className={`kind-card ${cls}`} onClick={() => onNew(kind)}>
-              <span className="kind-art">
-                <Icon size={34} strokeWidth={1.75} />
-              </span>
+          {MAIN.map(({ kind, label, desc }) => (
+            <button key={kind} className={`kind-card ${kind}`} onClick={() => onNew(kind)}>
+              <AppIcon kind={kind} size={58} />
               <span className="kind-name">{t(label)}</span>
               <span className="kind-desc">{t(desc)}</span>
             </button>
           ))}
         </div>
-        <div className="soon-grid">
-          {SOON.map(({ icon: Icon, label, desc }) => (
-            <div key={label} className="soon-card" aria-disabled>
-              <Icon size={20} strokeWidth={1.75} />
-              <div>
-                <div className="soon-name">
-                  {t(label)} <em>{t('comingSoon')}</em>
-                </div>
-                <div className="soon-desc">{t(desc)}</div>
-              </div>
-            </div>
+      </section>
+
+      <section>
+        <h2>{t('templatesTitle')}</h2>
+        <div className="tpl-row">
+          {TEMPLATES.map((tp) => (
+            <button key={tp.id} className={`tpl-card ${tp.kind}`} onClick={() => onTemplate(tp.build(lang))}>
+              <span className={`tpl-art ${tp.kind === 'slides' ? 'wide' : ''}`} aria-hidden>
+                <i /><i /><i /><i />
+              </span>
+              <span className="tpl-name">{tp.name[lang]}</span>
+              <span className="tpl-kind">{t(tp.kind === 'doc' ? 'kind_doc' : tp.kind === 'sheet' ? 'kind_sheet' : 'kind_slides')}</span>
+            </button>
           ))}
         </div>
       </section>
@@ -89,12 +91,31 @@ export function StartScreen({ onNew, onOpen }: Props) {
           tabIndex={0}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
         >
-          <Upload size={28} />
+          <Upload size={26} />
           <p>{t('openHint')}</p>
           <span className="drop-btn">{t('browse')}</span>
         </div>
         <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onOpen(f); e.target.value = ''; }} />
       </section>
+
+      <section>
+        <h2>{t('comingSoon')}</h2>
+        <div className="soon-grid">
+          {SOON.map(({ icon: Icon, label, desc }) => (
+            <div key={label} className="soon-card" aria-disabled>
+              <span className="soon-icon"><Icon size={18} strokeWidth={1.75} /></span>
+              <div>
+                <div className="soon-name">{t(label)}</div>
+                <div className="soon-desc">{t(desc)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <footer className="start-foot">
+        <LockKeyhole size={14} /> {t('privacyNote')}
+      </footer>
     </div>
   );
 }

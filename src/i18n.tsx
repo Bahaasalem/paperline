@@ -5,7 +5,7 @@ export type Lang = 'en' | 'ar';
 const en = {
   appName: 'Paperline',
   tagline: 'One app for every office file.',
-  createTitle: 'What would you like to create?',
+  createTitle: 'What would you like to make today?',
   openTitle: 'Open a file',
   openHint: 'Drop a file here, or click to browse. Supports .docx, .xlsx, .pptx, .pdf, images, .csv, .txt, .md and .pline',
   browse: 'Browse files',
@@ -247,6 +247,11 @@ const en = {
   useFont: 'Use',
   showAllFonts: 'Show every font on this device',
   pdfFonts: 'PDF standard (selectable text)',
+  helloMorning: 'Good morning',
+  helloAfternoon: 'Good afternoon',
+  helloEvening: 'Good evening',
+  templatesTitle: 'Start from a template',
+  privacyNote: 'Your files stay on this device. Nothing is uploaded.',
 } as const;
 
 export type Key = keyof typeof en;
@@ -254,7 +259,7 @@ export type Key = keyof typeof en;
 const ar: Record<Key, string> = {
   appName: 'Paperline',
   tagline: 'تطبيق واحد لكل ملفات المكتب.',
-  createTitle: 'ماذا تريد أن تنشئ؟',
+  createTitle: 'ماذا تريد أن تصنع اليوم؟',
   openTitle: 'فتح ملف',
   openHint: 'اسحب ملفاً إلى هنا أو انقر للاستعراض. يدعم ‎.docx و‎.xlsx و‎.pptx و‎.pdf والصور و‎.csv و‎.txt و‎.md و‎.pline',
   browse: 'استعراض الملفات',
@@ -492,6 +497,11 @@ const ar: Record<Key, string> = {
   useFont: 'استخدم',
   showAllFonts: 'عرض كل خطوط هذا الجهاز',
   pdfFonts: 'خطوط PDF القياسية (نص قابل للتحديد)',
+  helloMorning: 'صباح الخير',
+  helloAfternoon: 'مساء الخير',
+  helloEvening: 'مساء الخير',
+  templatesTitle: 'ابدأ من قالب',
+  privacyNote: 'ملفاتك تبقى على هذا الجهاز. لا يُرفع أي شيء.',
 };
 
 const dicts: Record<Lang, Record<Key, string>> = { en, ar };

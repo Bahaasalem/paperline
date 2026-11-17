@@ -12,7 +12,7 @@ import { newDeck } from './editors/slides/model';
 import { ACCEPT, defaultPage, exportAs, openFile, saveBlob, type SaveFormat } from './io/files';
 import { PrintJob, type Printable, type PrintMode } from './io/print';
 import { Menu, MenuItem } from './ui/Ribbon';
-import { Logo } from './ui/Logo';
+import { AppIcon, Logo } from './ui/Logo';
 
 // The PDF editor brings pdf.js and pdf-lib, so it loads only when a PDF is opened.
 const PdfEditor = lazy(() => import('./editors/pdf/PdfEditor').then((m) => ({ default: m.PdfEditor })));
@@ -154,6 +154,7 @@ export default function App() {
 
   return (
     <div className={`app ${kindClass}`}>
+      {(active || files.length > 0) && (
       <header className="topbar">
         <button className={`home-btn ${!active ? 'on' : ''}`} onClick={() => setActiveId(null)} title={t('home')} aria-label={t('home')}>
           <Logo size={26} />
@@ -190,7 +191,7 @@ export default function App() {
         <nav className="doc-tabs" aria-label="Open files">
           {files.map((f) => (
             <div key={f.id} className={`doc-tab k-${f.kind} ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)}>
-              <span className="dot" />
+              <AppIcon kind={f.kind} size={18} />
               {f.id === activeId ? (
                 <input className="doc-name" value={f.name} onChange={(e) => rename(e.target.value)} onBlur={(e) => rename(e.target.value)} aria-label="File name" size={Math.max(6, f.name.length)} />
               ) : (
@@ -218,9 +219,11 @@ export default function App() {
               </button>
             </>
           )}
-          <button className="lang-btn small" onClick={toggle} title="Language">
-            <Languages size={16} /> {t('language')}
-          </button>
+          {active && (
+            <button className="lang-btn small" onClick={toggle} title="Language">
+              <Languages size={16} /> {t('language')}
+            </button>
+          )}
           {!active && files.length > 0 && (
             <button className="icon-btn" onClick={() => setActiveId(files[files.length - 1].id)} aria-label="Back">
               <Home size={18} />
@@ -228,9 +231,10 @@ export default function App() {
           )}
         </div>
       </header>
+      )}
 
       <main className="workspace">
-        {!active && <StartScreen onNew={createNew} onOpen={open} />}
+        {!active && <StartScreen onNew={createNew} onOpen={open} onTemplate={add} />}
         {files.map((f) => (
           <div key={f.id} className="editor-host" hidden={f.id !== activeId}>
             {f.kind === 'doc' && <DocEditor data={f.data} onChange={updaterFor(f.id) as never} />}
