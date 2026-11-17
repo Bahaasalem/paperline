@@ -454,6 +454,131 @@ const FUNCS: Record<string, Fn> = {
   },
 };
 
+// ---------- more functions ----------
+const num1 = (v: Value) => toNum(scalar(v));
+const math1 = (fn: (x: number) => number | FErr) => (a: Value[]) => { const x = num1(a[0]); return isErr(x) ? x : fn(x); };
+const grid = (v: Value): Scalar[][] => (Array.isArray(v) ? v : [[v]]);
+/** Rows of criteria pairs, for the *IFS family: matches[i][j] is true when every criterion holds. */
+function multiMask(a: Value[], start: number): boolean[][] | FErr {
+  const first = grid(a[start]);
+  const mask = first.map((row) => row.map(() => true));
+  for (let k = start; k + 1 < a.length; k += 2) {
+    const range = grid(a[k]);
+    if (range.length !== first.length || range[0].length !== first[0].length) return ERR.value;
+    const test = makeCriteria(scalar(a[k + 1]));
+    range.forEach((row, i) => row.forEach((x, j) => { if (!test(x)) mask[i][j] = false; }));
+  }
+  return mask;
+}
+function pickNums(range: Scalar[][], mask: boolean[][]) {
+  const out: number[] = [];
+  range.forEach((row, i) => row.forEach((x, j) => { if (mask[i]?.[j] && typeof x === 'number') out.push(x); }));
+  return out;
+}
+const sd = (n: number[], sample: boolean) => {
+  if (n.length < (sample ? 2 : 1)) return ERR.div0;
+  const m = n.reduce((x, y) => x + y, 0) / n.length;
+  return n.reduce((x, y) => x + (y - m) ** 2, 0) / (n.length - (sample ? 1 : 0));
+};
+const addMonths = (serial: number, months: number) => {
+  const d = serialToDate(serial);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, Math.min(d.getUTCDate(), last)));
+};
+const utcSerial = (d: Date) => (d.getTime() - EXCEL_EPOCH) / 86400000;
+
+Object.assign(FUNCS, {
+  SUMIFS: (a: Value[]) => { const m = multiMask(a, 1); return isErr(m) ? m : pickNums(grid(a[0]), m).reduce((x, y) => x + y, 0); },
+  COUNTIFS: (a: Value[]) => { const m = multiMask(a, 0); return isErr(m) ? m : m.flat().filter(Boolean).length; },
+  AVERAGEIFS: (a: Value[]) => { const m = multiMask(a, 1); if (isErr(m)) return m; const n = pickNums(grid(a[0]), m); return n.length ? n.reduce((x, y) => x + y, 0) / n.length : ERR.div0; },
+  MAXIFS: (a: Value[]) => { const m = multiMask(a, 1); if (isErr(m)) return m; const n = pickNums(grid(a[0]), m); return n.length ? Math.max(...n) : 0; },
+  MINIFS: (a: Value[]) => { const m = multiMask(a, 1); if (isErr(m)) return m; const n = pickNums(grid(a[0]), m); return n.length ? Math.min(...n) : 0; },
+  IFS: (_a: Value[], raw: Node[], ev: (n: Node) => Value) => {
+    for (let i = 0; i + 1 < raw.length; i += 2) { const c = toBool(scalar(ev(raw[i]))); if (isErr(c)) return c; if (c) return ev(raw[i + 1]); }
+    return ERR.na;
+  },
+  SWITCH: (_a: Value[], raw: Node[], ev: (n: Node) => Value) => {
+    const v = scalar(ev(raw[0]));
+    let i = 1;
+    for (; i + 1 < raw.length; i += 2) if (toStr(scalar(ev(raw[i]))).toLowerCase() === toStr(v).toLowerCase()) return ev(raw[i + 1]);
+    return i < raw.length ? ev(raw[i]) : ERR.na;
+  },
+  XLOOKUP: (a: Value[]) => {
+    const key = toStr(scalar(a[0])).toLowerCase();
+    const look = flat([a[1]]);
+    const ret = grid(a[2]);
+    const i = look.findIndex((x) => toStr(x).toLowerCase() === key);
+    if (i < 0) return a[3] !== undefined ? scalar(a[3]) : ERR.na;
+    return ret.length === 1 ? ret[0][i] ?? null : ret[i]?.[0] ?? null;
+  },
+  TEXTJOIN: (a: Value[]) => { const sep = toStr(scalar(a[0])); const skip = toBool(scalar(a[1])) === true; return flat(a.slice(2)).map(toStr).filter((x) => !skip || x !== '').join(sep); },
+  SUBSTITUTE: (a: Value[]) => {
+    const s = toStr(scalar(a[0])), from = toStr(scalar(a[1])), to = toStr(scalar(a[2]));
+    if (!from) return s;
+    if (a[3] === undefined) return s.split(from).join(to);
+    const n = Number(toNum(scalar(a[3])));
+    let k = 0;
+    return s.replace(new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), (m) => (++k === n ? to : m));
+  },
+  REPLACE: (a: Value[]) => { const s = toStr(scalar(a[0])); const st = Number(toNum(scalar(a[1]))); const n = Number(toNum(scalar(a[2]))); return s.slice(0, st - 1) + toStr(scalar(a[3])) + s.slice(st - 1 + n); },
+  FIND: (a: Value[]) => { const i = toStr(scalar(a[1])).indexOf(toStr(scalar(a[0])), Number(toNum(scalar(a[2] ?? 1))) - 1); return i < 0 ? ERR.value : i + 1; },
+  SEARCH: (a: Value[]) => { const i = toStr(scalar(a[1])).toLowerCase().indexOf(toStr(scalar(a[0])).toLowerCase(), Number(toNum(scalar(a[2] ?? 1))) - 1); return i < 0 ? ERR.value : i + 1; },
+  PROPER: (a: Value[]) => toStr(scalar(a[0])).toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (_m, p1, p2) => p1 + p2.toUpperCase()),
+  REPT: (a: Value[]) => toStr(scalar(a[0])).repeat(Math.max(0, Number(toNum(scalar(a[1]))) || 0)),
+  VALUE: (a: Value[]) => num1(a[0]),
+  EXACT: (a: Value[]) => toStr(scalar(a[0])) === toStr(scalar(a[1])),
+  ISBLANK: (a: Value[]) => { const v = scalar(a[0]); return v === null || v === ''; },
+  ISNUMBER: (a: Value[]) => typeof scalar(a[0]) === 'number',
+  ISTEXT: (a: Value[]) => typeof scalar(a[0]) === 'string' && scalar(a[0]) !== '',
+  ISERROR: (a: Value[]) => isErr(scalar(a[0])),
+  ISEVEN: math1((x) => (Math.trunc(x) % 2 === 0 ? 1 : 0)),
+  CEILING: (a: Value[]) => { const x = num1(a[0]), f = num1(a[1] ?? 1); if (isErr(x)) return x; if (isErr(f)) return f; return f === 0 ? 0 : Math.ceil(x / f) * f; },
+  FLOOR: (a: Value[]) => { const x = num1(a[0]), f = num1(a[1] ?? 1); if (isErr(x)) return x; if (isErr(f)) return f; return f === 0 ? 0 : Math.floor(x / f) * f; },
+  TRUNC: (a: Value[]) => { const x = num1(a[0]), d = num1(a[1] ?? 0); if (isErr(x)) return x; if (isErr(d)) return d; return round(x, d, 'down'); },
+  EXP: math1(Math.exp),
+  LN: math1((x) => (x <= 0 ? ERR.num : Math.log(x))),
+  LOG10: math1((x) => (x <= 0 ? ERR.num : Math.log10(x))),
+  LOG: (a: Value[]) => { const x = num1(a[0]), b = num1(a[1] ?? 10); if (isErr(x)) return x; if (isErr(b)) return b; return x <= 0 || b <= 0 || b === 1 ? ERR.num : Math.log(x) / Math.log(b); },
+  SIGN: math1(Math.sign),
+  RANDBETWEEN: (a: Value[]) => { const lo = num1(a[0]), hi = num1(a[1]); if (isErr(lo)) return lo; if (isErr(hi)) return hi; return Math.floor(Math.random() * (Math.floor(hi) - Math.ceil(lo) + 1)) + Math.ceil(lo); },
+  STDEV: (a: Value[]) => { const n = nums(a); if (isErr(n)) return n; const v = sd(n, true); return isErr(v) ? v : Math.sqrt(v); },
+  STDEVP: (a: Value[]) => { const n = nums(a); if (isErr(n)) return n; const v = sd(n, false); return isErr(v) ? v : Math.sqrt(v); },
+  VAR: (a: Value[]) => { const n = nums(a); return isErr(n) ? n : sd(n, true); },
+  LARGE: (a: Value[]) => { const n = nums([a[0]]); const k = num1(a[1]); if (isErr(n)) return n; if (isErr(k)) return k; const s = [...n].sort((x, y) => y - x); return s[k - 1] ?? ERR.num; },
+  SMALL: (a: Value[]) => { const n = nums([a[0]]); const k = num1(a[1]); if (isErr(n)) return n; if (isErr(k)) return k; const s = [...n].sort((x, y) => x - y); return s[k - 1] ?? ERR.num; },
+  RANK: (a: Value[]) => { const x = num1(a[0]); const n = nums([a[1]]); if (isErr(x)) return x; if (isErr(n)) return n; const asc = a[2] !== undefined && toNum(scalar(a[2])) !== 0; const s = [...n].sort((p, q) => (asc ? p - q : q - p)); const i = s.indexOf(x); return i < 0 ? ERR.na : i + 1; },
+  SUMPRODUCT: (a: Value[]) => {
+    const gs = a.map(grid);
+    let total = 0;
+    gs[0].forEach((row, i) => row.forEach((_x, j) => { let p = 1; for (const g of gs) { const v = g[i]?.[j]; p *= typeof v === 'number' ? v : 0; } total += p; }));
+    return total;
+  },
+  WEEKDAY: (a: Value[]) => { const d = num1(a[0]); if (isErr(d)) return d; const w = serialToDate(d).getUTCDay(); const type = Number(toNum(scalar(a[1] ?? 1))); return type === 2 ? ((w + 6) % 7) + 1 : type === 3 ? (w + 6) % 7 : w + 1; },
+  EDATE: (a: Value[]) => { const d = num1(a[0]), m = num1(a[1]); if (isErr(d)) return d; if (isErr(m)) return m; return Math.floor(utcSerial(addMonths(d, m))); },
+  EOMONTH: (a: Value[]) => { const d = num1(a[0]), m = num1(a[1]); if (isErr(d)) return d; if (isErr(m)) return m; const x = serialToDate(d); return Math.floor(utcSerial(new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + m + 1, 0)))); },
+  DATEDIF: (a: Value[]) => {
+    const s = num1(a[0]), e = num1(a[1]); if (isErr(s)) return s; if (isErr(e)) return e;
+    if (e < s) return ERR.num;
+    const unit = toStr(scalar(a[2])).toUpperCase();
+    const d1 = serialToDate(s), d2 = serialToDate(e);
+    let months = (d2.getUTCFullYear() - d1.getUTCFullYear()) * 12 + d2.getUTCMonth() - d1.getUTCMonth();
+    if (d2.getUTCDate() < d1.getUTCDate()) months--;
+    return unit === 'D' ? Math.floor(e - s) : unit === 'M' ? months : unit === 'Y' ? Math.floor(months / 12) : ERR.num;
+  },
+  NETWORKDAYS: (a: Value[]) => { const s = num1(a[0]), e = num1(a[1]); if (isErr(s)) return s; if (isErr(e)) return e; let n = 0; for (let d = Math.floor(Math.min(s, e)); d <= Math.max(s, e); d++) { const w = serialToDate(d).getUTCDay(); if (w !== 0 && w !== 6) n++; } return e < s ? -n : n; },
+  TIME: (a: Value[]) => { const [h, m, sec] = a.map((x) => Number(toNum(scalar(x)))); return (h * 3600 + m * 60 + (sec || 0)) / 86400; },
+  HOUR: math1((x) => Math.floor(((x % 1) * 24) + 1e-9)),
+  MINUTE: math1((x) => Math.floor(((x * 1440) % 60) + 1e-9)),
+  SECOND: math1((x) => Math.round((x * 86400) % 60)),
+  PMT: (a: Value[]) => { const [r, n, pv, fv = 0, type = 0] = a.map((x) => Number(toNum(scalar(x)))); if (!n) return ERR.num; if (r === 0) return -(pv + fv) / n; const f = Math.pow(1 + r, n); return (-(pv * f + fv) * r) / ((1 + r * type) * (f - 1)); },
+  FV: (a: Value[]) => { const [r, n, pmt, pv = 0, type = 0] = a.map((x) => Number(toNum(scalar(x)))); if (r === 0) return -(pv + pmt * n); const f = Math.pow(1 + r, n); return -(pv * f + (pmt * (1 + r * type) * (f - 1)) / r); },
+  PV: (a: Value[]) => { const [r, n, pmt, fv = 0, type = 0] = a.map((x) => Number(toNum(scalar(x)))); if (r === 0) return -(fv + pmt * n); const f = Math.pow(1 + r, n); return -(fv + (pmt * (1 + r * type) * (f - 1)) / r) / f; },
+  NPV: (a: Value[]) => { const r = num1(a[0]); if (isErr(r)) return r; const n = nums(a.slice(1)); if (isErr(n)) return n; return n.reduce((acc, v, i) => acc + v / Math.pow(1 + r, i + 1), 0); },
+  CHOOSE: (_a: Value[], raw: Node[], ev: (n: Node) => Value) => { const i = Number(toNum(scalar(ev(raw[0])))); return raw[i] ? ev(raw[i]) : ERR.value; },
+  ROWS: (a: Value[]) => grid(a[0]).length,
+  COLUMNS: (a: Value[]) => grid(a[0])[0]?.length ?? 0,
+} as Record<string, Fn>);
+
 export const FUNCTION_NAMES = Object.keys(FUNCS).sort();
 
 // ---------- evaluator ----------
@@ -574,9 +699,9 @@ export class Engine {
       case 'fn': {
         const f = FUNCS[n.name];
         if (!f) return ERR.name;
-        const lazy = n.name === 'IF' || n.name === 'IFERROR';
+        const lazy = n.name === 'IF' || n.name === 'IFERROR' || n.name === 'IFS' || n.name === 'SWITCH' || n.name === 'CHOOSE';
         const args = lazy ? [] : n.args.map((a) => this.ev(a, sh));
-        if (!lazy && !['IFERROR', 'COUNT', 'COUNTA', 'COUNTBLANK'].includes(n.name)) {
+        if (!lazy && !['IFERROR', 'COUNT', 'COUNTA', 'COUNTBLANK', 'ISERROR', 'ISBLANK', 'ISNUMBER', 'ISTEXT'].includes(n.name)) {
           for (const a of args) if (isErr(a)) return a;
         }
         return f(args, n.args, (x) => this.ev(x, sh));
