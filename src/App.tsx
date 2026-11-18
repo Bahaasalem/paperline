@@ -9,6 +9,7 @@ import { SlidesEditor } from './editors/slides/SlidesEditor';
 import { newPdfDoc } from './editors/pdf/model';
 import { newWorkbook } from './editors/sheet/model';
 import { newDeck } from './editors/slides/model';
+import { ask, listenForOpenedFiles, printPdfBlob, printsViaPdf, shell } from './platform';
 import { ACCEPT, defaultPage, exportAs, openFile, saveBlob, type SaveFormat } from './io/files';
 import { PrintJob, type Printable, type PrintMode } from './io/print';
 import { Menu, MenuItem } from './ui/Ribbon';
@@ -26,7 +27,7 @@ export default function App() {
   const [dirty, setDirty] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [job, setJob] = useState<{ mode: PrintMode; file: Printable } | null>(null);
+  const [job, setJob] = useState<{ mode: PrintMode; file: Printable; print?: boolean } | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
 
   const active = files.find((f) => f.id === activeId) ?? null;
@@ -82,7 +83,7 @@ export default function App() {
     setBusy(true);
     try {
       const { blob, filename } = await exportAs(active, fmt);
-      await saveBlob(blob, filename);
+      if ((await saveBlob(blob, filename)) === false) return;
       if (fmt === 'native' || fmt === 'docx' || fmt === 'xlsx' || fmt === 'pptx' || fmt === 'pdf') setDirty((d) => ({ ...d, [active.id]: false }));
       flash(t('saved'));
     } catch (e) {
@@ -102,18 +103,27 @@ export default function App() {
     if (file.kind === 'pdf') {
       if (mode === 'pdf') return save('pdf');
       setBusy(true);
+      if (printsViaPdf) {
+        import('./editors/pdf/save')
+          .then(({ pdfBlob }) => pdfBlob(file.data))
+          .then((b) => printPdfBlob(b, `${file.name}.pdf`))
+          .catch((e) => flash(String((e as Error)?.message ?? e)))
+          .finally(() => setBusy(false));
+        return;
+      }
       import('./editors/pdf/print')
         .then(({ printPdfDoc }) => printPdfDoc(file.data))
         .catch((e) => flash(String((e as Error)?.message ?? e)))
         .finally(() => setBusy(false));
       return;
     }
+    if (mode === 'print' && printsViaPdf) { setBusy(true); setJob({ mode: 'pdf', file, print: true }); return; }
     if (mode === 'pdf') setBusy(true);
     setJob({ mode, file });
   };
 
-  const close = (id: number) => {
-    if (dirty[id] && !window.confirm(t('unsavedConfirm'))) return;
+  const close = async (id: number) => {
+    if (dirty[id] && !(await ask(t('unsavedConfirm')))) return;
     setFiles((fs) => {
       const rest = fs.filter((f) => f.id !== id);
       if (activeId === id) setActiveId(rest.length ? rest[rest.length - 1].id : null);
@@ -141,6 +151,16 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // files the system asks us to open (double-click, "Open with Paperline")
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let gone = false;
+    listenForOpenedFiles((f) => openRef.current(f)).then((u) => { if (gone) u(); else off = u; });
+    return () => { gone = true; off?.(); };
+  }, []);
 
   useEffect(() => {
     const onUnload = (e: BeforeUnloadEvent) => {
@@ -249,7 +269,7 @@ export default function App() {
         ))}
       </main>
 
-      <input ref={openInput} type="file" accept={ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) open(f); e.target.value = ''; }} />
+      <input ref={openInput} type="file" accept={shell === 'mobile' ? undefined : ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) open(f); e.target.value = ''; }} />
       {toast && <div className="toast" role="status">{toast}</div>}
       {job && (
         <PrintJob
@@ -259,7 +279,8 @@ export default function App() {
             setJob(null);
             setBusy(false);
             if (err) { console.error(err); flash(String((err as Error)?.message ?? err)); return; }
-            if (pdf) await saveBlob(pdf, `${job.file.name}.pdf`);
+            if (pdf && job.print) await printPdfBlob(pdf, `${job.file.name}.pdf`).catch((e) => flash(String((e as Error)?.message ?? e)));
+            else if (pdf) await saveBlob(pdf, `${job.file.name}.pdf`);
           }}
         />
       )}

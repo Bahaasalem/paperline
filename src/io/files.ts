@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { nativeSave } from '../platform';
 import { generateJSON } from '@tiptap/core';
 import type { DocData, DocKind, OpenFile } from '../types';
 import { docExtensions } from '../editors/doc/extensions';
@@ -124,6 +125,8 @@ export async function exportAs(f: OpenFile, fmt: SaveFormat): Promise<{ blob: Bl
 
 /** Save with the system dialog when the browser has one, else download. */
 export async function saveBlob(blob: Blob, filename: string) {
+  const native = await nativeSave(blob, filename);
+  if (native !== null) return native;
   const w = window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> };
   if (w.showSaveFilePicker && window.self === window.top) {
     try {
@@ -134,7 +137,7 @@ export async function saveBlob(blob: Blob, filename: string) {
       await ws.close();
       return;
     } catch (e) {
-      if ((e as DOMException)?.name === 'AbortError') return;
+      if ((e as DOMException)?.name === 'AbortError') return false;
       // fall through to download
     }
   }
@@ -146,6 +149,7 @@ export async function saveBlob(blob: Blob, filename: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
 }
 
 /** Small Markdown → HTML for opening .md files (headings, lists, emphasis, code, links). */

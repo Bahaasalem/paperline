@@ -20,7 +20,10 @@ Paperline is built in phases. Each phase ends with something people can use, and
 - Spreadsheet charts are kept in `.pline` files but not yet written to `.xlsx`.
 - Presentation text boxes use one style per box, and there are no per-object animations yet.
 
-## Phase 2: Desktop apps for Windows and macOS
+## Phase 2: Desktop apps for Windows and macOS (started)
+
+Done: Tauri 2 apps built by GitHub Actions, native save and confirm dialogs, file associations and "Open with", printing through Preview on macOS. Still to do: signed installers, auto-updater, autosave and recent files.
+
 
 - Wrap the web app with **Tauri 2** (small installers, about 10 MB, using the system web view).
 - Native open and save dialogs, recent files, "Open with Paperline" and double-click to open `.docx`, `.xlsx`, `.pptx` and `.pline`.
@@ -29,7 +32,10 @@ Paperline is built in phases. Each phase ends with something people can use, and
 - Signed installers (`.msi` for Windows, `.dmg` for macOS) and an auto-updater, built by GitHub Actions.
 - Works fully offline.
 
-## Phase 3: Mobile apps for iPhone and Android
+## Phase 3: Mobile apps for iPhone and Android (started)
+
+Done: Capacitor apps for Android (APK) and iPhone (Xcode project and unsigned build), share-sheet saving, phone layout for slides. Still to do: touch-first toolbar, store builds, opening files from other apps.
+
 
 - Package with **Capacitor**, sharing the same React code.
 - Touch-first ribbon: a compact bottom toolbar with sheets for each tool group.

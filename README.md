@@ -43,6 +43,38 @@ npm test         # formula engine tests
 npm run build    # production build in dist/
 ```
 
+## Desktop and phone apps
+
+The same code runs as a Mac app, a Windows app, an Android app and an iPhone app.
+
+| | Built with | What you get |
+|---|---|---|
+| macOS | [Tauri 2](https://tauri.app) | a `.dmg` for Apple silicon and Intel Macs |
+| Windows | Tauri 2 | an installer (`.exe`) and an `.msi` |
+| Android | [Capacitor](https://capacitorjs.com) | `Paperline-Android.apk` |
+| iPhone | Capacitor | `Paperline-iPhone-unsigned.ipa`, or run it from Xcode |
+
+**Download the apps.** Every push runs the "Apps" workflow on GitHub Actions. Open the latest run under the repository's **Actions** tab and download the files under **Artifacts**. Pushing a tag such as `v0.2.0` also publishes them on a GitHub release.
+
+What the apps add on top of the web version:
+- Save opens the system's save dialog on desktop and the share sheet on phones (Save to Files, Drive, Mail).
+- Double-clicking a `.docx`, `.xlsx`, `.pptx`, `.pdf`, `.csv` or `.pline` file, or "Open with Paperline", opens it in the desktop app.
+- On the Mac, printing opens a PDF in Preview to print. On phones it opens the share sheet, which has Print.
+
+**First launch (unsigned builds).** The apps are not signed with paid Apple or Microsoft certificates yet:
+- **Mac:** drag Paperline to Applications. If macOS says the app "is damaged" or can't be checked, run `xattr -cr /Applications/Paperline.app` in Terminal once, then open it.
+- **Windows:** if SmartScreen appears, choose **More info**, then **Run anyway**.
+- **Android:** allow "Install unknown apps" for your browser or Files app when asked.
+- **iPhone:** Apple allows installing only signed apps. Either connect the iPhone to your Mac and run `npm run ios`, then press Run in Xcode with your Apple ID as the team, or install the `.ipa` with [Sideloadly](https://sideloadly.io) and your Apple ID. With a free Apple ID the app must be re-installed every 7 days; a paid developer account ($99/year) removes that and allows TestFlight and the App Store.
+
+**Building them yourself:**
+```bash
+npm run desktop          # run the desktop app in development (needs Rust)
+npm run desktop:build    # build the installer for this computer
+npm run android          # open the Android project in Android Studio
+npm run ios              # open the iPhone project in Xcode (Mac only)
+```
+
 ## How it is built
 
 - **React 19 + TypeScript + Vite** for the app.
