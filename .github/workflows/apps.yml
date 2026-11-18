@@ -5,7 +5,7 @@ name: Apps
 # Pushing a tag such as v0.2.0 also publishes them on a GitHub release.
 on:
   push:
-    branches: [main, phase-2-apps]
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -122,3 +122,4 @@ jobs:
         with:
           files: out/*
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
