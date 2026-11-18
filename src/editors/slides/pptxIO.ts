@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { textStyle, uid, type ChartData, type Deck, type ShapeEl, type ShapeKind, type Slide, type SlideEl, type TextEl, type TextStyle, type Transition } from './model';
+import { textStyle, uid, type ChartData, type Deck, type ShapeEl, type ShapeKind, type Slide, type SlideEl, type TableEl, type TextEl, type TextStyle, type Transition } from './model';
 import type { ChartType } from '../sheet/model';
 import { CHART_COLORS } from '../sheet/features';
 
@@ -125,19 +125,27 @@ export async function writePptx(deck: Deck): Promise<Blob> {
   return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
 
-/** pptxgenjs has no transitions: write <p:transition> into each slide part ourselves. */
+/** pptxgenjs writes no transitions and no table style flags: add them to each slide part ourselves. */
 async function addTransitions(buf: ArrayBuffer, deck: Deck): Promise<ArrayBuffer> {
-  if (!deck.slides.some((s) => s.transition && s.transition !== 'none')) return buf;
+  const needs = deck.slides.some((s) => (s.transition && s.transition !== 'none') || s.els.some((e) => e.type === 'table'));
+  if (!needs) return buf;
   const zip = await JSZip.loadAsync(buf);
   for (const [i, s] of deck.slides.entries()) {
-    if (!s.transition || s.transition === 'none') continue;
     const path = `ppt/slides/slide${i + 1}.xml`;
-    const xml = await zip.file(path)?.async('string');
+    let xml = await zip.file(path)?.async('string');
     if (!xml) continue;
-    const tr = `<p:transition spd="med">${TRANSITION_XML[s.transition]}</p:transition>`;
-    const at = xml.indexOf('</p:clrMapOvr>');
-    const next = at >= 0 ? xml.slice(0, at + 14) + tr + xml.slice(at + 14) : xml.replace('</p:cSld>', `</p:cSld>${tr}`);
-    zip.file(path, next);
+    const tables = s.els.filter((e): e is TableEl => e.type === 'table');
+    let n = 0;
+    xml = xml.replace(/<a:tblPr\/>/g, (m) => {
+      const t = tables[n++];
+      return t ? `<a:tblPr${t.header ? ' firstRow="1"' : ''}${t.banded ? ' bandRow="1"' : ''}/>` : m;
+    });
+    if (s.transition && s.transition !== 'none') {
+      const tr = `<p:transition spd="med">${TRANSITION_XML[s.transition]}</p:transition>`;
+      const at = xml.indexOf('</p:clrMapOvr>');
+      xml = at >= 0 ? xml.slice(0, at + 14) + tr + xml.slice(at + 14) : xml.replace('</p:cSld>', `</p:cSld>${tr}`);
+    }
+    zip.file(path, xml);
   }
   return zip.generateAsync({ type: 'arraybuffer' });
 }
@@ -544,14 +552,21 @@ function readTable(tbl: Element, theme: Theme, scale: number, box: { id: string;
   const cols = Math.max(...rows.map((r) => r.length));
   for (const r of rows) while (r.length < cols) r.push('');
   const tblPr = kid(tbl, NS.a, 'tblPr');
-  const firstFill = colorOf(kid(kid(kids(trs[0], NS.a, 'tc')[0], NS.a, 'tcPr'), NS.a, 'solidFill'), theme);
+  const fills = trs.map((tr) => colorOf(kid(kid(kids(tr, NS.a, 'tc')[0], NS.a, 'tcPr'), NS.a, 'solidFill'), theme)?.toLowerCase());
+  const firstFill = fills[0];
+  const white = (c?: string) => !c || c === '#ffffff';
+  // files without style flags (ours, older pptxgenjs) still show a colored first row and stripes
+  const inferHeader = !white(fills[0]) && fills[0] !== fills[1];
+  const h0 = inferHeader ? 1 : 0;
+  const inferBand = trs.length - h0 >= 2 && fills[h0] !== fills[h0 + 1] && (trs.length - h0 < 3 || fills[h0] === fills[h0 + 2]);
+  const flags = !!tblPr && (tblPr.hasAttribute('firstRow') || tblPr.hasAttribute('bandRow'));
   const rPr = desc(tbl, NS.a, 'rPr')[0] ?? desc(tbl, NS.a, 'endParaRPr')[0];
   const sz = rPr?.getAttribute('sz');
   return {
     ...box, type: 'table', rows,
-    color: firstFill ?? theme.colors.accent1 ?? '#6366f1',
-    header: tblPr ? tblPr.getAttribute('firstRow') === '1' : true,
-    banded: tblPr ? tblPr.getAttribute('bandRow') === '1' : true,
+    color: (inferHeader ? firstFill : undefined) ?? theme.colors.accent1 ?? '#6366f1',
+    header: flags ? tblPr!.getAttribute('firstRow') === '1' : inferHeader,
+    banded: flags ? tblPr!.getAttribute('bandRow') === '1' : inferBand,
     style: textStyle({ fontSize: Math.round((sz ? Number(sz) / 100 : 14) * scale * 10) / 10, color: theme.colors.dk1 ?? '#1f2937', fontFace: theme.minorFont }),
   };
 }

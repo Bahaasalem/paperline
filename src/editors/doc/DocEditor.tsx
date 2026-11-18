@@ -10,6 +10,7 @@ import {
   PaintBucket, Hash, PanelTop, PanelBottom, WholeWord, ALargeSmall,
 } from 'lucide-react';
 import { useI18n } from '../../i18n';
+import { AskDialog, type Ask } from '../../ui/AskDialog';
 import { Btn, ColorBtn, Group, Menu, MenuItem, Ribbon, Select } from '../../ui/Ribbon';
 import { FontPicker } from '../../ui/FontPicker';
 import { familyCss } from '../../fonts';
@@ -51,6 +52,7 @@ export function DocEditor({ data, onChange, onEditor }: Props) {
   const dataRef = useRef(data);
   dataRef.current = data;
   const [zoom, setZoom] = useState(1);
+  const [ask, setAsk] = useState<Ask | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [find, setFind] = useState<null | { replace: boolean }>(null);
   const [findQ, setFindQ] = useState('');
@@ -169,10 +171,15 @@ export function DocEditor({ data, onChange, onEditor }: Props) {
 
   const setLink = () => {
     const prev = editor.getAttributes('link').href as string | undefined;
-    const url = window.prompt(t('linkPrompt'), prev ?? 'https://');
-    if (url === null) return;
-    if (url === '') chain().extendMarkRange('link').unsetLink().run();
-    else chain().extendMarkRange('link').setLink({ href: url }).run();
+    setAsk({
+      title: t('link'),
+      fields: [{ key: 'url', label: t('linkPrompt'), value: prev ?? 'https://' }],
+      onOk: ({ url }) => {
+        const u = url.trim();
+        if (!u || u === 'https://') chain().extendMarkRange('link').unsetLink().run();
+        else chain().extendMarkRange('link').setLink({ href: u }).run();
+      },
+    });
   };
 
   const changeCase = (mode: CaseMode) => {
@@ -494,6 +501,7 @@ export function DocEditor({ data, onChange, onEditor }: Props) {
         <span className="grow" />
         <span>{Math.round(zoom * 100)}%</span>
       </div>
+      {ask && <AskDialog ask={ask} onClose={() => { setAsk(null); editor.commands.focus(); }} />}
     </div>
   );
 }
